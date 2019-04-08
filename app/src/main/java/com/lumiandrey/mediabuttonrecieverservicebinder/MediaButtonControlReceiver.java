@@ -26,6 +26,9 @@ public class MediaButtonControlReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+
+        Log.d(TAG, "onReceive " + intent);
+
         if (Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
 
             KeyEvent event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);

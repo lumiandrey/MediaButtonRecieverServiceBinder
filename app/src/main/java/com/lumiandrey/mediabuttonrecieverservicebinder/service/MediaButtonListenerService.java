@@ -5,9 +5,12 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.res.Configuration;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.support.annotation.NonNull;
@@ -16,6 +19,7 @@ import android.support.v4.app.NotificationCompat;
 import android.util.Log;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
+import com.lumiandrey.mediabuttonrecieverservicebinder.MediaButtonControlReceiver;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
 
 import java.io.Serializable;
@@ -29,6 +33,11 @@ public class MediaButtonListenerService extends Service {
     private static final int ID_FOREGROUND_NOTIFICATION = (TAG.hashCode() > 0 ? -1*TAG.hashCode() : TAG.hashCode());
 
     private int countBindingUser = 0;
+
+    @Nullable
+    private AudioManager mAudioManager;
+    @Nullable
+    private ComponentName mRemoteControlResponder;
 
     @NonNull
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = new MediaButtonListenerServiceBinder(this);
@@ -90,12 +99,27 @@ public class MediaButtonListenerService extends Service {
                     } else {
                         stopForeground(true);
                     }
+
+                    if(mAudioManager == null || mRemoteControlResponder == null){
+                        startListen();
+                    }
+
                 } break;
                 case START:{
 
+                    startListen();
 
                 } break;
                 case STOP: {
+
+
+                    Log.d(TAG, "onStartCommand: stop listener");
+
+                    mAudioManager.unregisterMediaButtonEventReceiver(
+                            mRemoteControlResponder);
+
+                    mAudioManager = null;
+                    mRemoteControlResponder = null;
 
                     stopForeground(true);
                     stopSelf();
@@ -104,6 +128,17 @@ public class MediaButtonListenerService extends Service {
         }
 
         return super.onStartCommand(intent, flags, startId);
+    }
+
+    private void startListen() {
+
+        Log.d(TAG, "startListen");
+        mAudioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
+        mRemoteControlResponder = new ComponentName(getPackageName(),
+                MediaButtonControlReceiver.class.getName());
+
+        mAudioManager.registerMediaButtonEventReceiver(
+                mRemoteControlResponder);
     }
 
     private Notification buildNotification() {
@@ -177,6 +212,13 @@ public class MediaButtonListenerService extends Service {
         startService(checkForeground(this));
 
         return true;
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        Log.d(TAG, "onConfigurationChanged");
     }
 
     private boolean isForegroundWork(){
