@@ -5,11 +5,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.media.AudioManager;
+import android.media.session.MediaSession;
+import android.media.session.PlaybackState;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.provider.Settings;
 import android.support.annotation.NonNull;
 import android.support.design.widget.BottomNavigationView;
+import android.support.v4.app.FragmentActivity;
 import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.MenuItem;
 import android.widget.TextView;
 
@@ -18,6 +26,10 @@ import com.lumiandrey.mediabuttonrecieverservicebinder.fragment.BlankNoConnectio
 
 public class MainActivity extends AppCompatActivity {
 
+    public static final String TAG = MainActivity.class.getName();
+
+    private MediaSessionCompat _mediaSession;
+    private MediaSessionCompat.Token _mediaSessionToken;
 
     private BottomNavigationView.OnNavigationItemSelectedListener mOnNavigationItemSelectedListener
             = item -> {
@@ -52,9 +64,6 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             };
 
-    private AudioManager mAudioManager;
-    private ComponentName mRemoteControlResponder;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -62,6 +71,29 @@ public class MainActivity extends AppCompatActivity {
 
         BottomNavigationView navigation = findViewById(R.id.navigation);
         navigation.setOnNavigationItemSelectedListener(mOnNavigationItemSelectedListener);
+
+        _mediaSession = new MediaSessionCompat(getApplicationContext(), MainActivity.class.getName() + ".__");
+
+        if (_mediaSession == null) {
+            Log.e(TAG, "initMediaSession: _mediaSession = null");
+            return;
+        }
+
+        _mediaSessionToken = _mediaSession.getSessionToken();
+        Log.d(TAG, "onCreate: " + _mediaSessionToken);
+
+        _mediaSession.setCallback(new MediaSessionCompat.Callback() {
+            public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
+
+                Log.d(TAG, "onMediaButtonEvent called: " + mediaButtonIntent);
+                return super.onMediaButtonEvent(mediaButtonIntent);
+            }
+        });
+
+        _mediaSession.setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
+                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+
     }
 
 
@@ -69,24 +101,28 @@ public class MainActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
 
-        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        PlaybackStateCompat state = new PlaybackStateCompat.Builder()
+                .setActions(
+                        PlaybackStateCompat.ACTION_PLAY |
+                                PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+                                PlaybackStateCompat.ACTION_PAUSE |
+                                PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
+                .setState(PlaybackStateCompat.STATE_PLAYING,
+                        0, SystemClock.elapsedRealtime())
+                .build();
 
-        /*mAudioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
-        mRemoteControlResponder = new ComponentName(getPackageName(),
-                MediaButtonControlReceiver.class.getName());
+        _mediaSession.setPlaybackState(state);
 
-        mAudioManager.registerMediaButtonEventReceiver(
-                mRemoteControlResponder);*/
+        _mediaSession.setActive(true);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-/*
-        mAudioManager.unregisterMediaButtonEventReceiver(
-                mRemoteControlResponder);
 
-        mAudioManager = null;
-        mRemoteControlResponder = null;*/
+        _mediaSession.setActive(false);
+        _mediaSession.release();
     }
 }

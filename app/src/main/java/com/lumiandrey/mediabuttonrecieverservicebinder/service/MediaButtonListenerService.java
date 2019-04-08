@@ -5,21 +5,27 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
+import android.os.ResultReceiver;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
+import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
-import com.lumiandrey.mediabuttonrecieverservicebinder.MediaButtonControlReceiver;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
 
 import java.io.Serializable;
@@ -34,13 +40,29 @@ public class MediaButtonListenerService extends Service {
 
     private int countBindingUser = 0;
 
-    @Nullable
-    private AudioManager mAudioManager;
-    @Nullable
-    private ComponentName mRemoteControlResponder;
+    private BroadcastReceiver mBecomingNoisyReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+
+            Log.d(TAG, "onReceive: " + intent);
+        }
+    };
+
+    private BroadcastReceiver mReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+
+            Log.d(TAG, "onReceive: " + intent);
+        }
+    };
+
+    private IntentFilter filter = new IntentFilter(Intent.ACTION_HEADSET_PLUG);
+    private IntentFilter filterMediaButton = new IntentFilter(Intent.ACTION_MEDIA_BUTTON);
+
 
     @NonNull
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = new MediaButtonListenerServiceBinder(this);
+
 
     @Override
     public void onCreate() {
@@ -100,9 +122,6 @@ public class MediaButtonListenerService extends Service {
                         stopForeground(true);
                     }
 
-                    if(mAudioManager == null || mRemoteControlResponder == null){
-                        startListen();
-                    }
 
                 } break;
                 case START:{
@@ -115,11 +134,7 @@ public class MediaButtonListenerService extends Service {
 
                     Log.d(TAG, "onStartCommand: stop listener");
 
-                    mAudioManager.unregisterMediaButtonEventReceiver(
-                            mRemoteControlResponder);
-
-                    mAudioManager = null;
-                    mRemoteControlResponder = null;
+                    unregisterReceiver(mBecomingNoisyReceiver);
 
                     stopForeground(true);
                     stopSelf();
@@ -133,12 +148,12 @@ public class MediaButtonListenerService extends Service {
     private void startListen() {
 
         Log.d(TAG, "startListen");
-        mAudioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
-        mRemoteControlResponder = new ComponentName(getPackageName(),
-                MediaButtonControlReceiver.class.getName());
 
-        mAudioManager.registerMediaButtonEventReceiver(
-                mRemoteControlResponder);
+        registerReceiver(
+                mBecomingNoisyReceiver,
+                filter);
+
+
     }
 
     private Notification buildNotification() {

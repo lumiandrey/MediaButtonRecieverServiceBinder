@@ -24,12 +24,16 @@
             </intent-filter>
         </activity>
 
-        <receiver android:name="MediaButtonControlReceiver">
+        <service android:name=".service.MediaButtonListenerService">
+        </service>
+
+        <receiver android:name="android.support.v4.media.session.MediaButtonReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+                <action android:name="android.media.AUDIO_BECOMING_NOISY" />
+            </intent-filter>
         </receiver>
 
-        <service android:name=".service.MediaButtonListenerService">
-
-        </service>
     </application>
 
 </manifest>
