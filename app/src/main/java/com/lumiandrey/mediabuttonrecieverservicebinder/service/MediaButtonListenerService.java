@@ -70,7 +70,40 @@ public class MediaButtonListenerService extends Service {
                             | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
                             | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS);
 
-    MediaSessionCompat mediaSession;
+    private MediaSessionCompat mediaSession;
+
+    private AudioManager mAudioManager;
+
+    private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener =
+            new AudioManager.OnAudioFocusChangeListener() {
+                @Override
+                public void onAudioFocusChange(int focusChange) {
+                    switch (focusChange) {
+                        case AudioManager.AUDIOFOCUS_GAIN:
+                            // Фокус предоставлен.
+                            // Например, был входящий звонок и фокус у нас отняли.
+                            // Звонок закончился, фокус выдали опять
+                            // и мы продолжили воспроизведение.
+                            mediaSessionCallback.onPlay();
+                            break;
+                        case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                            // Фокус отняли, потому что какому-то приложению надо
+                            // коротко "крякнуть".
+                            // Например, проиграть звук уведомления или навигатору сказать
+                            // "Через 50 метров поворот направо".
+                            // В этой ситуации нам разрешено не останавливать вопроизведение,
+                            // но надо снизить громкость.
+                            // Приложение не обязано именно снижать громкость,
+                            // можно встать на паузу, что мы здесь и делаем.
+                            mediaSessionCallback.onPause();
+                            break;
+                        default:
+                            // Фокус совсем отняли.
+                            mediaSessionCallback.onPause();
+                            break;
+                    }
+                }
+            };
 
     @NonNull
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = new MediaButtonListenerServiceBinder(this);
@@ -106,6 +139,8 @@ public class MediaButtonListenerService extends Service {
                 Intent.ACTION_MEDIA_BUTTON, null, appContext, MediaButtonReceiver.class);
         mediaSession.setMediaButtonReceiver(
                 PendingIntent.getBroadcast(appContext, 0, mediaButtonIntent, 0));
+
+        mAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
         Log.d(TAG, "onCreate" + String.format(" Count binder component %d",  countBindingUser));
     }
@@ -218,6 +253,17 @@ public class MediaButtonListenerService extends Service {
             metadata.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, track.getDuration());
             mediaSession.setMetadata(metadata.build());
 */
+
+            int audioFocusResult = mAudioManager.requestAudioFocus(
+                    audioFocusChangeListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN);
+            if (audioFocusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+                return;
+
+            // Аудиофокус надо получить строго до вызова setActive!
+            mediaSession.setActive(true);
+
             // Указываем, что наше приложение теперь активный плеер и кнопки
             // на окне блокировки должны управлять именно нами
             mediaSession.setActive(true);
@@ -231,6 +277,7 @@ public class MediaButtonListenerService extends Service {
         @Override
         public void onStop() {
 
+            mAudioManager.abandonAudioFocus(audioFocusChangeListener);
             // Все, больше мы не "главный" плеер, уходим со сцены
             mediaSession.setActive(false);
 
