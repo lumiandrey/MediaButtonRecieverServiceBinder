@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.res.Configuration;
+import android.graphics.BitmapFactory;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,6 +22,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
@@ -48,17 +50,27 @@ public class MediaButtonListenerService extends Service {
         }
     };
 
-    private BroadcastReceiver mReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-
-            Log.d(TAG, "onReceive: " + intent);
-        }
-    };
-
     private IntentFilter filter = new IntentFilter(Intent.ACTION_HEADSET_PLUG);
-    private IntentFilter filterMediaButton = new IntentFilter(Intent.ACTION_MEDIA_BUTTON);
 
+    // ...метаданных трека
+    final MediaMetadataCompat.Builder metadataBuilder = new MediaMetadataCompat.Builder();
+
+    // ...состояния плеера
+    // Здесь мы указываем действия, которые собираемся обрабатывать в коллбэках.
+    // Например, если мы не укажем ACTION_PAUSE,
+    // то нажатие на паузу не вызовет onPause.
+    // ACTION_PLAY_PAUSE обязателен, иначе не будет работать
+    // управление с Android Wear!
+    final PlaybackStateCompat.Builder stateBuilder = new PlaybackStateCompat.Builder()
+            .setActions(
+                    PlaybackStateCompat.ACTION_PLAY
+                            | PlaybackStateCompat.ACTION_STOP
+                            | PlaybackStateCompat.ACTION_PAUSE
+                            | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                            | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                            | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS);
+
+    MediaSessionCompat mediaSession;
 
     @NonNull
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = new MediaButtonListenerServiceBinder(this);
@@ -67,6 +79,33 @@ public class MediaButtonListenerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+
+        // "PlayerService" - просто tag для отладки
+        mediaSession = new MediaSessionCompat(this, "PlayerService");
+
+        // FLAG_HANDLES_MEDIA_BUTTONS - хотим получать события от аппаратных кнопок
+        // (например, гарнитуры)
+        // FLAG_HANDLES_TRANSPORT_CONTROLS - хотим получать события от кнопок
+        // на окне блокировки
+        mediaSession.setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
+                        | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+
+        // Отдаем наши коллбэки
+        mediaSession.setCallback(mediaSessionCallback);
+
+        Context appContext = getApplicationContext();
+
+        // Укажем activity, которую запустит система, если пользователь
+        // заинтересуется подробностями данной сессии
+        Intent activityIntent = new Intent(appContext, MainActivity.class);
+        mediaSession.setSessionActivity(
+                PendingIntent.getActivity(appContext, 0, activityIntent, 0));
+
+        Intent mediaButtonIntent = new Intent(
+                Intent.ACTION_MEDIA_BUTTON, null, appContext, MediaButtonReceiver.class);
+        mediaSession.setMediaButtonReceiver(
+                PendingIntent.getBroadcast(appContext, 0, mediaButtonIntent, 0));
 
         Log.d(TAG, "onCreate" + String.format(" Count binder component %d",  countBindingUser));
     }
@@ -108,6 +147,7 @@ public class MediaButtonListenerService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
+        MediaButtonReceiver.handleIntent(mediaSession, intent);
         Log.d(TAG, "onStartCommand" + String.format(" Count binder component %d",  countBindingUser));
 
         if(intent != null && intent.getExtras() != null) {
@@ -153,8 +193,53 @@ public class MediaButtonListenerService extends Service {
                 mBecomingNoisyReceiver,
                 filter);
 
-
     }
+
+    MediaSessionCompat.Callback mediaSessionCallback = new MediaSessionCompat.Callback() {
+
+        @Override
+        public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
+
+            Log.d(TAG, "onMediaButtonEvent: " + mediaButtonEvent);
+            return super.onMediaButtonEvent(mediaButtonEvent);
+        }
+
+        @Override
+        public void onPlay() {
+            /*MusicRepository.Track track = musicRepository.getCurrent();
+
+            // Заполняем данные о треке
+            MediaMetadataCompat.Builder metadata = metadataBuilder
+                    .putBitmap(MediaMetadataCompat.METADATA_KEY_ART,
+                            BitmapFactory.decodeResource(getResources(), track.getBitmapResId()));
+            metadata.putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.getTitle());
+            metadata.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, track.getArtist());
+            metadata.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.getArtist());
+            metadata.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, track.getDuration());
+            mediaSession.setMetadata(metadata.build());
+*/
+            // Указываем, что наше приложение теперь активный плеер и кнопки
+            // на окне блокировки должны управлять именно нами
+            mediaSession.setActive(true);
+
+            // Сообщаем новое состояние
+            mediaSession.setPlaybackState(
+                    stateBuilder.setState(PlaybackStateCompat.STATE_PLAYING,
+                            PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
+        }
+
+        @Override
+        public void onStop() {
+
+            // Все, больше мы не "главный" плеер, уходим со сцены
+            mediaSession.setActive(false);
+
+            // Сообщаем новое состояние
+            mediaSession.setPlaybackState(
+                    stateBuilder.setState(PlaybackStateCompat.STATE_STOPPED,
+                            PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
+        }
+    };
 
     private Notification buildNotification() {
 
@@ -210,6 +295,9 @@ public class MediaButtonListenerService extends Service {
     public void onDestroy() {
 
         Log.d(TAG, "onDestroy" + String.format(" Count binder component %d",  countBindingUser));
+
+        // Ресурсы освобождать обязательно
+        mediaSession.release();
         super.onDestroy();
     }
 
@@ -282,6 +370,12 @@ public class MediaButtonListenerService extends Service {
         intent.putExtra(NAME_COMMAND, command);
 
         return intent;
+    }
+
+    @Nullable
+    public MediaSessionCompat.Token getSessionToken() {
+
+        return (mediaSession == null? null: mediaSession.getSessionToken());
     }
 
     private enum Command implements Serializable {

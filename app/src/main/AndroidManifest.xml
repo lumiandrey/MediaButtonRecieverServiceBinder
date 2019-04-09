@@ -24,7 +24,11 @@
             </intent-filter>
         </activity>
 
-        <service android:name=".service.MediaButtonListenerService">
+        <service android:name=".service.MediaButtonListenerService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
         </service>
 
         <receiver android:name="android.support.v4.media.session.MediaButtonReceiver">
