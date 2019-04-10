@@ -4,11 +4,17 @@ import android.content.ComponentName;
 import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.RemoteException;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
+import android.support.v4.media.session.MediaControllerCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.service.MediaButtonListenerService;
@@ -34,6 +40,14 @@ public class BlankConnectionFragment
     @Nullable
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = null;
 
+    @Nullable
+    private MediaControllerCompat mediaController;
+
+    private MediaControllerCompat.Callback callback;
+
+    Button playButton = null;
+    Button pauseButton = null;
+    Button stopButton = null;
     public BlankConnectionFragment() {
         // Required empty public constructor
     }
@@ -54,6 +68,16 @@ public class BlankConnectionFragment
             mParam1 = getArguments().getString(ARG_PARAM1);
             mParam2 = getArguments().getString(ARG_PARAM2);
         }
+
+        callback = new MediaControllerCompat.Callback() {
+            @Override
+            public void onPlaybackStateChanged(PlaybackStateCompat state) {
+                if (state == null)
+                    return;
+                boolean playing = state.getState() == PlaybackStateCompat.STATE_PLAYING;
+                Log.d(TAG, "onPlaybackStateChanged: playing " + playing);
+            }
+        };
     }
 
     @Override
@@ -63,7 +87,47 @@ public class BlankConnectionFragment
         TextView textView = new TextView(getActivity());
         textView.setText(mParam1 + " " + mParam2);
 
-        return textView;
+        LinearLayout linearLayout = new LinearLayout(getContext());
+
+        linearLayout.setOrientation(LinearLayout.VERTICAL);
+
+        linearLayout.addView(textView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        playButton = new Button(getContext());
+        pauseButton = new Button(getContext());
+        stopButton = new Button(getContext());
+
+
+        linearLayout.addView(playButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        linearLayout.addView(pauseButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        linearLayout.addView(stopButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        playButton.setOnClickListener(v -> {
+            if (mediaController != null)
+                mediaController.getTransportControls().play();
+        });
+
+        pauseButton.setOnClickListener(v -> {
+            if (mediaController != null)
+                mediaController.getTransportControls().pause();
+        });
+
+        stopButton.setOnClickListener(v -> {
+            if (mediaController != null)
+                mediaController.getTransportControls().stop();
+        });
+
+        return linearLayout;
     }
 
     @Override
@@ -72,6 +136,14 @@ public class BlankConnectionFragment
 
         if(getContext() != null && mButtonListenerServiceBinder == null)
             MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+
+        if (mediaController != null)
+            mediaController.getTransportControls().play();
     }
 
     @Override
@@ -87,6 +159,14 @@ public class BlankConnectionFragment
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+
+        if (mediaController != null) {
+            mediaController.unregisterCallback(callback);
+            mediaController = null;
+        }
+
+       /* if(getContext() != null)
+            getContext().unbindService(this);*/
     }
 
     @Override
@@ -95,6 +175,16 @@ public class BlankConnectionFragment
         if(service instanceof MediaButtonListenerServiceBinder){
 
             mButtonListenerServiceBinder = (MediaButtonListenerServiceBinder) service;
+
+            try {
+                mediaController = new MediaControllerCompat(
+                        getContext(), mButtonListenerServiceBinder.getMediaSessionToken());
+                mediaController.registerCallback(callback);
+
+
+            } catch (RemoteException e) {
+                mediaController = null;
+            }
         }
     }
 
@@ -102,5 +192,10 @@ public class BlankConnectionFragment
     public void onServiceDisconnected(ComponentName name) {
 
         mButtonListenerServiceBinder = null;
+
+        if (mediaController != null) {
+            mediaController.unregisterCallback(callback);
+            mediaController = null;
+        }
     }
 }
