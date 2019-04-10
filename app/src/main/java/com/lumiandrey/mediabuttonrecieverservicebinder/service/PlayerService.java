@@ -290,13 +290,16 @@ public class PlayerService extends Service {
     private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener = focusChange -> {
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
-                mediaSessionCallback.onPlay(); // Не очень красиво
+                mediaSessionCallback.onPlay(); 
+                Log.d(TAG, "AUDIOFOCUS_GAIN: ");
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: ");
                 mediaSessionCallback.onPause();
                 break;
             default:
                 mediaSessionCallback.onPause();
+                Log.d(TAG, "AUDIOFOCUS_NONE: ");
                 break;
         }
     };

@@ -119,9 +119,14 @@ public class MediaButtonListenerService extends Service {
             }
         });
 
+        Context appContext = getApplicationContext();
+
         _mediaSession.setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
                         MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+
+        Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON, null, appContext, MediaButtonReceiver.class);
+        _mediaSession.setMediaButtonReceiver(PendingIntent.getBroadcast(appContext, 0, mediaButtonIntent, 0));
 
         Log.d(TAG, "onCreate" + String.format(" Count binder component %d",  countBindingUser));
     }
