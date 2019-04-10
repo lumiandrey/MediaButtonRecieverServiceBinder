@@ -1,5 +1,6 @@
 package com.lumiandrey.mediabuttonrecieverservicebinder.service;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -11,11 +12,16 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.res.Configuration;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationManagerCompat;
+import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.util.Log;
 
@@ -39,12 +45,36 @@ public class MediaButtonListenerService extends Service {
     private MediaSessionCompat.Token _mediaSessionToken;
 
     private IntentFilter filter = new IntentFilter(Intent.ACTION_HEADSET_PLUG);
-    private BroadcastReceiver mBecomingNoisyReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
+    @Nullable
+    private BroadcastReceiver mBecomingNoisyReceiver = null;
 
-            Log.d(TAG, "onReceive: " + intent);
-            //mediaSessionCallback.onPause();
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private boolean audioFocusRequested = false;
+
+    private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener = focusChange -> {
+        switch (focusChange) {
+            case AudioManager.AUDIOFOCUS_GAIN:
+                // Фокус предоставлен.
+                // Например, был входящий звонок и фокус у нас отняли.
+                // Звонок закончился, фокус выдали опять
+                // и мы продолжили воспроизведение.
+                Log.d(TAG, "AUDIOFOCUS_GAIN:  Фокус предоставлен");
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                // Фокус отняли, потому что какому-то приложению надо
+                // коротко "крякнуть".
+                // Например, проиграть звук уведомления или навигатору сказать
+                // "Через 50 метров поворот направо".
+                // В этой ситуации нам разрешено не останавливать вопроизведение,
+                // но надо снизить громкость.
+                // Приложение не обязано именно снижать громкость,
+                // можно встать на паузу, что мы здесь и делаем.
+                Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: кому-то коротко \"крякнуть\"" );
+                break;
+            default:
+                Log.d(TAG, " // Фокус совсем отняли.: ");
+                break;
         }
     };
 
@@ -54,6 +84,22 @@ public class MediaButtonListenerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build();
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                    .setAcceptsDelayedFocusGain(false)
+                    .setWillPauseWhenDucked(true)
+                    .setAudioAttributes(audioAttributes)
+                    .build();
+        }
 
         _mediaSession = new MediaSessionCompat(getApplicationContext(), MainActivity.class.getName() + ".__");
 
@@ -117,15 +163,15 @@ public class MediaButtonListenerService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
-        //MediaButtonReceiver.handleIntent(mediaSession, intent);
+        //MediaButtonReceiver.handleIntent(_mediaSession, intent);
 
-        Log.d(TAG, "onStartCommand" + String.format(" Count binder component %d",  countBindingUser));
+        Log.d(TAG, "onStartCommand " + String.format(" Count binder component %d",  countBindingUser));
         Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
 
         startForeground(ID_FOREGROUND_NOTIFICATION, buildNotification());
         stopForeground(true);
 
-      /*  if(intent != null && intent.getExtras() != null) {
+      if(intent.getExtras() != null) {
             Command command = (Command) intent.getExtras().getSerializable(NAME_COMMAND);
 
             switch (command != null ? command : Command.DEFAULT){
@@ -137,11 +183,11 @@ public class MediaButtonListenerService extends Service {
                         stopForeground(true);
                     }
 
-
+                    if (name()) return super.onStartCommand(intent, flags, startId);
                 } break;
                 case START:{
 
-                    startListen();
+
 
                 } break;
                 case STOP: {
@@ -149,24 +195,69 @@ public class MediaButtonListenerService extends Service {
 
                     Log.d(TAG, "onStartCommand: stop listener");
 
-                    unregisterReceiver(mBecomingNoisyReceiver);
+                    if(mBecomingNoisyReceiver != null) {
+                        unregisterReceiver(mBecomingNoisyReceiver);
+                        mBecomingNoisyReceiver = null;
+                    }
+
+                    if (audioFocusRequested) {
+                        audioFocusRequested = false;
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+                        } else {
+                            audioManager.abandonAudioFocus(audioFocusChangeListener);
+                        }
+                    }
 
                     stopForeground(true);
                     stopSelf();
                 } break;
             }
         }
-*/
+
         return super.onStartCommand(intent, flags, startId);
+    }
+
+    private boolean name() {
+        if (!audioFocusRequested) {
+            audioFocusRequested = true;
+
+            int audioFocusResult;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusResult = audioManager.requestAudioFocus(audioFocusRequest);
+            } else {
+                audioFocusResult = audioManager.requestAudioFocus(audioFocusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+            }
+            if (audioFocusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+                return true;
+        }
+
+        _mediaSession.setActive(true); // Сразу после получения фокуса
+
+        startListen();
+        return false;
     }
 
     private void startListen() {
 
         Log.d(TAG, "startListen");
 
-        registerReceiver(
-                mBecomingNoisyReceiver,
-                filter);
+        if(mBecomingNoisyReceiver == null) {
+
+            mBecomingNoisyReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+
+                    Log.d(TAG, "onReceive: " + intent);
+                    //mediaSessionCallback.onPause();
+                }
+            };
+
+            registerReceiver(
+                    mBecomingNoisyReceiver,
+                    filter);
+        }
 
     }
 

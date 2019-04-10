@@ -96,14 +96,15 @@ public class BlankConnectionFragmentService
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
-
         return linearLayout;
     }
 
     @Override
     public void onStart() {
         super.onStart();
+
+        if(playerServiceBinder == null)
+            MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
 
     }
 
@@ -117,17 +118,18 @@ public class BlankConnectionFragmentService
     public void onStop() {
         super.onStop();
 
+        if(playerServiceBinder != null) {
+
+            MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
+            playerServiceBinder = null;
+        }
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
 
-        if(playerServiceBinder != null) {
 
-            MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
-            playerServiceBinder = null;
-        }
     }
 
     @Override

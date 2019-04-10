@@ -93,7 +93,7 @@ public class PlayerService extends Service {
     public void onCreate() {
         super.onCreate();
 
-        /*if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             @SuppressLint("WrongConstant") NotificationChannel notificationChannel = new NotificationChannel(NOTIFICATION_DEFAULT_CHANNEL_ID, getString(R.string.app_name), NotificationManagerCompat.IMPORTANCE_DEFAULT);
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             notificationManager.createNotificationChannel(notificationChannel);
@@ -132,7 +132,7 @@ public class PlayerService extends Service {
 
         Log.d(TAG, "onCreate: ");
 
-        this.extractorsFactory = new DefaultExtractorsFactory();*/
+        this.extractorsFactory = new DefaultExtractorsFactory();
     }
 
     @Override
