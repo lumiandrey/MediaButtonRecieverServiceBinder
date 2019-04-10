@@ -13,6 +13,8 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.res.Configuration;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,6 +23,7 @@ import android.os.ResultReceiver;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
@@ -29,6 +32,7 @@ import android.util.Log;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
+import com.lumiandrey.mediabuttonrecieverservicebinder.style.MediaStyleHelper;
 
 import java.io.Serializable;
 import java.util.UUID;
@@ -47,6 +51,7 @@ public class MediaButtonListenerService extends Service {
         public void onReceive(Context context, Intent intent) {
 
             Log.d(TAG, "onReceive: " + intent);
+            mediaSessionCallback.onPause();
         }
     };
 
@@ -73,6 +78,7 @@ public class MediaButtonListenerService extends Service {
     private MediaSessionCompat mediaSession;
 
     private AudioManager mAudioManager;
+    private AudioFocusRequest audioFocusRequest;
 
     private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener =
             new AudioManager.OnAudioFocusChangeListener() {
@@ -241,28 +247,54 @@ public class MediaButtonListenerService extends Service {
 
         @Override
         public void onPlay() {
-            /*MusicRepository.Track track = musicRepository.getCurrent();
+
+            Log.d(TAG, "onPlay: ");
 
             // Заполняем данные о треке
-            MediaMetadataCompat.Builder metadata = metadataBuilder
-                    .putBitmap(MediaMetadataCompat.METADATA_KEY_ART,
-                            BitmapFactory.decodeResource(getResources(), track.getBitmapResId()));
-            metadata.putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.getTitle());
-            metadata.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, track.getArtist());
-            metadata.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.getArtist());
-            metadata.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, track.getDuration());
+            MediaMetadataCompat.Builder metadata = metadataBuilder;
+            metadata.putString(MediaMetadataCompat.METADATA_KEY_TITLE, "title");
+            metadata.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Artist");
+            metadata.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Album");
+            metadata.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 0);
             mediaSession.setMetadata(metadata.build());
-*/
 
-            int audioFocusResult = mAudioManager.requestAudioFocus(
-                    audioFocusChangeListener,
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN);
+            int audioFocusResult;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+
+                AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                        // Собираемся воспроизводить звуковой контент
+                        // (а не звук уведомления или звонок будильника)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        // ...и именно музыку (а не трек фильма или речь)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build();
+                audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                        // Если получить фокус не удалось, ничего не делаем
+                        // Если true - нам выдадут фокус как только это будет возможно
+                        // (например, закончится телефонный разговор)
+                        .setAcceptsDelayedFocusGain(false)
+                        // Вместо уменьшения громкости собираемся вставать на паузу
+                        .setWillPauseWhenDucked(true)
+                        .setAudioAttributes(audioAttributes)
+                        .build();
+
+                audioFocusResult = mAudioManager.requestAudioFocus(audioFocusRequest);
+            }
+            else {
+                audioFocusResult = mAudioManager.requestAudioFocus(
+                        audioFocusChangeListener,
+                        AudioManager.STREAM_MUSIC,
+                        AudioManager.AUDIOFOCUS_GAIN);
+            }
+
             if (audioFocusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
                 return;
 
-            // Аудиофокус надо получить строго до вызова setActive!
-            mediaSession.setActive(true);
+            Log.d(TAG, "onPlay: audiofocus granted" );
+
 
             // Указываем, что наше приложение теперь активный плеер и кнопки
             // на окне блокировки должны управлять именно нами
@@ -277,6 +309,7 @@ public class MediaButtonListenerService extends Service {
         @Override
         public void onStop() {
 
+            Log.d(TAG, "onStop: ");
             mAudioManager.abandonAudioFocus(audioFocusChangeListener);
             // Все, больше мы не "главный" плеер, уходим со сцены
             mediaSession.setActive(false);
@@ -287,6 +320,46 @@ public class MediaButtonListenerService extends Service {
                             PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
         }
     };
+
+    Notification getNotification(int playbackState) {
+        // MediaStyleHelper заполняет уведомление метаданными трека.
+        // Хелпер любезно написал Ian Lake / Android Framework Developer at Google
+        // и выложил здесь: https://gist.github.com/ianhanniballake/47617ec3488e0257325c
+        NotificationCompat.Builder builder = MediaStyleHelper.from(this, mediaSession, TAG);
+
+        // Добавляем кнопки
+
+        // ...play/pause
+        if (playbackState == PlaybackStateCompat.STATE_PLAYING)
+            builder.addAction(
+                    new NotificationCompat.Action(
+                            android.R.drawable.ic_media_pause, "pause",
+                            MediaButtonReceiver.buildMediaButtonPendingIntent(
+                                    this,
+                                    PlaybackStateCompat.ACTION_PLAY_PAUSE)));
+        else
+            builder.addAction(
+                    new NotificationCompat.Action(
+                            android.R.drawable.ic_media_play, "play",
+                            MediaButtonReceiver.buildMediaButtonPendingIntent(
+                                    this,
+                                    PlaybackStateCompat.ACTION_PLAY_PAUSE)));
+
+        builder.setSmallIcon(R.mipmap.ic_launcher);
+        builder.setColor(ContextCompat.getColor(this, R.color.colorPrimaryDark));
+
+        // Не отображать время создания уведомления. В нашем случае это не имеет смысла
+        builder.setShowWhen(false);
+
+        // Это важно. Без этой строчки уведомления не отображаются на Android Wear
+        // и криво отображаются на самом телефоне.
+        builder.setPriority(NotificationCompat.PRIORITY_HIGH);
+
+        // Не надо каждый раз вываливать уведомление на пользователя
+        builder.setOnlyAlertOnce(true);
+
+        return builder.build();
+    }
 
     private Notification buildNotification() {
 

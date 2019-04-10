@@ -1,6 +1,7 @@
 package com.lumiandrey.mediabuttonrecieverservicebinder.fragment;
 
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -19,6 +20,9 @@ import android.widget.TextView;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.service.MediaButtonListenerService;
 import com.lumiandrey.mediabuttonrecieverservicebinder.service.MediaButtonListenerServiceBinder;
+import com.lumiandrey.mediabuttonrecieverservicebinder.service.PlayerService;
+
+import static android.content.Context.BIND_AUTO_CREATE;
 
 /**
  * A simple {@link Fragment} subclass.
@@ -38,8 +42,7 @@ public class BlankConnectionFragment
     private String mParam2;
 
     @Nullable
-    private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = null;
-
+    private PlayerService.PlayerServiceBinder playerServiceBinder;
     @Nullable
     private MediaControllerCompat mediaController;
 
@@ -96,9 +99,11 @@ public class BlankConnectionFragment
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         playButton = new Button(getContext());
+        playButton.setText("play");
         pauseButton = new Button(getContext());
+        pauseButton.setText("pause");
         stopButton = new Button(getContext());
-
+        stopButton.setText("stop");
 
         linearLayout.addView(playButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -127,6 +132,8 @@ public class BlankConnectionFragment
                 mediaController.getTransportControls().stop();
         });
 
+        getContext().bindService(new Intent(getContext(), PlayerService.class), this, BIND_AUTO_CREATE);
+
         return linearLayout;
     }
 
@@ -134,8 +141,8 @@ public class BlankConnectionFragment
     public void onStart() {
         super.onStart();
 
-        if(getContext() != null && mButtonListenerServiceBinder == null)
-            MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
+       /* if(getContext() != null && playerServiceBinder == null)
+            MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);*/
     }
 
     @Override
@@ -149,11 +156,13 @@ public class BlankConnectionFragment
     @Override
     public void onStop() {
         super.onStop();
+/*
 
         if(getContext() != null)
             MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
+*/
 
-        mButtonListenerServiceBinder = null;
+        playerServiceBinder = null;
     }
 
     @Override
@@ -165,20 +174,22 @@ public class BlankConnectionFragment
             mediaController = null;
         }
 
-       /* if(getContext() != null)
-            getContext().unbindService(this);*/
+        if(getContext() != null && playerServiceBinder != null) {
+            getContext().unbindService(this);
+            playerServiceBinder = null;
+        }
     }
 
     @Override
     public void onServiceConnected(ComponentName name, IBinder service) {
 
-        if(service instanceof MediaButtonListenerServiceBinder){
+        if(service instanceof PlayerService.PlayerServiceBinder){
 
-            mButtonListenerServiceBinder = (MediaButtonListenerServiceBinder) service;
+            playerServiceBinder = (PlayerService.PlayerServiceBinder) service;
 
             try {
                 mediaController = new MediaControllerCompat(
-                        getContext(), mButtonListenerServiceBinder.getMediaSessionToken());
+                        getContext(), playerServiceBinder.getMediaSessionToken());
                 mediaController.registerCallback(callback);
 
 
@@ -191,7 +202,7 @@ public class BlankConnectionFragment
     @Override
     public void onServiceDisconnected(ComponentName name) {
 
-        mButtonListenerServiceBinder = null;
+        playerServiceBinder = null;
 
         if (mediaController != null) {
             mediaController.unregisterCallback(callback);

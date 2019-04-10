@@ -19,12 +19,12 @@ public class MediaStyleHelper {
      * @return A pre-built notification with information from the given media session.
      */
     public static NotificationCompat.Builder from(
-            Context context, MediaSessionCompat mediaSession) {
+            Context context, MediaSessionCompat mediaSession, String TAG) {
         MediaControllerCompat controller = mediaSession.getController();
         MediaMetadataCompat mediaMetadata = controller.getMetadata();
         MediaDescriptionCompat description = mediaMetadata.getDescription();
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, TAG);
         builder
                 .setContentTitle(description.getTitle())
                 .setContentText(description.getSubtitle())
