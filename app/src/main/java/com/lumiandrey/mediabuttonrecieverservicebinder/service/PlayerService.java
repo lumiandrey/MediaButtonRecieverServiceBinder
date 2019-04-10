@@ -93,7 +93,7 @@ public class PlayerService extends Service {
     public void onCreate() {
         super.onCreate();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        /*if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             @SuppressLint("WrongConstant") NotificationChannel notificationChannel = new NotificationChannel(NOTIFICATION_DEFAULT_CHANNEL_ID, getString(R.string.app_name), NotificationManagerCompat.IMPORTANCE_DEFAULT);
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             notificationManager.createNotificationChannel(notificationChannel);
@@ -129,7 +129,10 @@ public class PlayerService extends Service {
         DataSource.Factory httpDataSourceFactory = new OkHttpDataSourceFactory(new OkHttpClient(), Util.getUserAgent(this, getString(R.string.app_name)), null);
         Cache cache = new SimpleCache(new File(this.getCacheDir().getAbsolutePath() + "/exoplayer"), new LeastRecentlyUsedCacheEvictor(1024 * 1024 * 100)); // 100 Mb max
         this.dataSourceFactory = new CacheDataSourceFactory(cache, httpDataSourceFactory, CacheDataSource.FLAG_BLOCK_ON_CACHE | CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
-        this.extractorsFactory = new DefaultExtractorsFactory();
+
+        Log.d(TAG, "onCreate: ");
+
+        this.extractorsFactory = new DefaultExtractorsFactory();*/
     }
 
     @Override
@@ -157,7 +160,7 @@ public class PlayerService extends Service {
         @Override
         public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
 
-            Log.d(TAG, "onMediaButtonEvent: " + mediaButtonEvent);
+            Log.d(TAG, "onMediaButtonEvent: true main service" + mediaButtonEvent);
             return super.onMediaButtonEvent(mediaButtonEvent);
         }
 
@@ -348,8 +351,9 @@ public class PlayerService extends Service {
     }
 
     public class PlayerServiceBinder extends Binder {
+        @Nullable
         public MediaSessionCompat.Token getMediaSessionToken() {
-            return mediaSession.getSessionToken();
+            return (mediaSession != null ? mediaSession.getSessionToken() : null);
         }
     }
 

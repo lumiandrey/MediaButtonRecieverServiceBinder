@@ -22,14 +22,15 @@ import android.view.MenuItem;
 import android.widget.TextView;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.fragment.BlankConnectionFragment;
+import com.lumiandrey.mediabuttonrecieverservicebinder.fragment.BlankConnectionFragmentService;
 import com.lumiandrey.mediabuttonrecieverservicebinder.fragment.BlankNoConnectionFragment;
 
 public class MainActivity extends AppCompatActivity {
 
     public static final String TAG = MainActivity.class.getName();
 
-    private MediaSessionCompat _mediaSession;
-    private MediaSessionCompat.Token _mediaSessionToken;
+   /* private MediaSessionCompat _mediaSession;
+    private MediaSessionCompat.Token _mediaSessionToken;*/
 
     private BottomNavigationView.OnNavigationItemSelectedListener mOnNavigationItemSelectedListener
             = item -> {
@@ -47,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
                         getSupportFragmentManager()
                                 .beginTransaction()
-                                .replace(R.id.frame_fragment_container, BlankConnectionFragment.newInstance("Navigation ", "Connection"))
+                                .replace(R.id.frame_fragment_container, BlankConnectionFragmentService.newInstance("Navigation ", "Connection"))
                                 .commit();
 
                         return true;
@@ -71,31 +72,7 @@ public class MainActivity extends AppCompatActivity {
 
         BottomNavigationView navigation = findViewById(R.id.navigation);
         navigation.setOnNavigationItemSelectedListener(mOnNavigationItemSelectedListener);
-
-        _mediaSession = new MediaSessionCompat(getApplicationContext(), MainActivity.class.getName() + ".__");
-
-        if (_mediaSession == null) {
-            Log.e(TAG, "initMediaSession: _mediaSession = null");
-            return;
-        }
-
-        _mediaSessionToken = _mediaSession.getSessionToken();
-        Log.d(TAG, "onCreate: " + _mediaSessionToken);
-
-        _mediaSession.setCallback(new MediaSessionCompat.Callback() {
-            public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
-
-                Log.d(TAG, "onMediaButtonEvent called: " + mediaButtonIntent);
-                return super.onMediaButtonEvent(mediaButtonIntent);
-            }
-        });
-
-        _mediaSession.setFlags(
-                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
-                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
-
     }
-
 
     @Override
     protected void onStart() {
@@ -108,7 +85,5 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
 
-        _mediaSession.setActive(false);
-        _mediaSession.release();
     }
 }

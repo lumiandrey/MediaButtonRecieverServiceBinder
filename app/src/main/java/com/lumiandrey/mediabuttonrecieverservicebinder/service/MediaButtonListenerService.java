@@ -6,33 +6,22 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.res.Configuration;
-import android.graphics.BitmapFactory;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.IBinder;
-import android.os.ResultReceiver;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.media.MediaMetadataCompat;
-import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
-import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
+import com.lumiandrey.mediabuttonrecieverservicebinder.MediaButtonHelper;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
-import com.lumiandrey.mediabuttonrecieverservicebinder.style.MediaStyleHelper;
 
 import java.io.Serializable;
 import java.util.UUID;
@@ -46,107 +35,47 @@ public class MediaButtonListenerService extends Service {
 
     private int countBindingUser = 0;
 
+    private MediaSessionCompat _mediaSession;
+    private MediaSessionCompat.Token _mediaSessionToken;
+
+    private IntentFilter filter = new IntentFilter(Intent.ACTION_HEADSET_PLUG);
     private BroadcastReceiver mBecomingNoisyReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
 
             Log.d(TAG, "onReceive: " + intent);
-            mediaSessionCallback.onPause();
+            //mediaSessionCallback.onPause();
         }
     };
 
-    private IntentFilter filter = new IntentFilter(Intent.ACTION_HEADSET_PLUG);
-
-    // ...метаданных трека
-    final MediaMetadataCompat.Builder metadataBuilder = new MediaMetadataCompat.Builder();
-
-    // ...состояния плеера
-    // Здесь мы указываем действия, которые собираемся обрабатывать в коллбэках.
-    // Например, если мы не укажем ACTION_PAUSE,
-    // то нажатие на паузу не вызовет onPause.
-    // ACTION_PLAY_PAUSE обязателен, иначе не будет работать
-    // управление с Android Wear!
-    final PlaybackStateCompat.Builder stateBuilder = new PlaybackStateCompat.Builder()
-            .setActions(
-                    PlaybackStateCompat.ACTION_PLAY
-                            | PlaybackStateCompat.ACTION_STOP
-                            | PlaybackStateCompat.ACTION_PAUSE
-                            | PlaybackStateCompat.ACTION_PLAY_PAUSE
-                            | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                            | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS);
-
-    private MediaSessionCompat mediaSession;
-
-    private AudioManager mAudioManager;
-    private AudioFocusRequest audioFocusRequest;
-
-    private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener =
-            new AudioManager.OnAudioFocusChangeListener() {
-                @Override
-                public void onAudioFocusChange(int focusChange) {
-                    switch (focusChange) {
-                        case AudioManager.AUDIOFOCUS_GAIN:
-                            // Фокус предоставлен.
-                            // Например, был входящий звонок и фокус у нас отняли.
-                            // Звонок закончился, фокус выдали опять
-                            // и мы продолжили воспроизведение.
-                            mediaSessionCallback.onPlay();
-                            break;
-                        case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                            // Фокус отняли, потому что какому-то приложению надо
-                            // коротко "крякнуть".
-                            // Например, проиграть звук уведомления или навигатору сказать
-                            // "Через 50 метров поворот направо".
-                            // В этой ситуации нам разрешено не останавливать вопроизведение,
-                            // но надо снизить громкость.
-                            // Приложение не обязано именно снижать громкость,
-                            // можно встать на паузу, что мы здесь и делаем.
-                            mediaSessionCallback.onPause();
-                            break;
-                        default:
-                            // Фокус совсем отняли.
-                            mediaSessionCallback.onPause();
-                            break;
-                    }
-                }
-            };
-
     @NonNull
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = new MediaButtonListenerServiceBinder(this);
-
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        // "PlayerService" - просто tag для отладки
-        mediaSession = new MediaSessionCompat(this, "PlayerService");
+        _mediaSession = new MediaSessionCompat(getApplicationContext(), MainActivity.class.getName() + ".__");
 
-        // FLAG_HANDLES_MEDIA_BUTTONS - хотим получать события от аппаратных кнопок
-        // (например, гарнитуры)
-        // FLAG_HANDLES_TRANSPORT_CONTROLS - хотим получать события от кнопок
-        // на окне блокировки
-        mediaSession.setFlags(
-                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
-                        | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        if (_mediaSession == null) {
+            Log.e(TAG, "initMediaSession: _mediaSession = null");
+            return;
+        }
 
-        // Отдаем наши коллбэки
-        mediaSession.setCallback(mediaSessionCallback);
+        _mediaSessionToken = _mediaSession.getSessionToken();
+        Log.d(TAG, "onCreate: " + _mediaSessionToken);
 
-        Context appContext = getApplicationContext();
+        _mediaSession.setCallback(new MediaSessionCompat.Callback() {
+            public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
 
-        // Укажем activity, которую запустит система, если пользователь
-        // заинтересуется подробностями данной сессии
-        Intent activityIntent = new Intent(appContext, MainActivity.class);
-        mediaSession.setSessionActivity(
-                PendingIntent.getActivity(appContext, 0, activityIntent, 0));
+                Log.d(TAG, "onMediaButtonEvent called: " + mediaButtonIntent);
+                return super.onMediaButtonEvent(mediaButtonIntent);
+            }
+        });
 
-        Intent mediaButtonIntent = new Intent(
-                Intent.ACTION_MEDIA_BUTTON, null, appContext, MediaButtonReceiver.class);
-        mediaSession.setMediaButtonReceiver(
-                PendingIntent.getBroadcast(appContext, 0, mediaButtonIntent, 0));
-
-        mAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        _mediaSession.setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
+                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
 
         Log.d(TAG, "onCreate" + String.format(" Count binder component %d",  countBindingUser));
     }
@@ -188,10 +117,15 @@ public class MediaButtonListenerService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
-        MediaButtonReceiver.handleIntent(mediaSession, intent);
-        Log.d(TAG, "onStartCommand" + String.format(" Count binder component %d",  countBindingUser));
+        //MediaButtonReceiver.handleIntent(mediaSession, intent);
 
-        if(intent != null && intent.getExtras() != null) {
+        Log.d(TAG, "onStartCommand" + String.format(" Count binder component %d",  countBindingUser));
+        Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
+
+        startForeground(ID_FOREGROUND_NOTIFICATION, buildNotification());
+        stopForeground(true);
+
+      /*  if(intent != null && intent.getExtras() != null) {
             Command command = (Command) intent.getExtras().getSerializable(NAME_COMMAND);
 
             switch (command != null ? command : Command.DEFAULT){
@@ -222,7 +156,7 @@ public class MediaButtonListenerService extends Service {
                 } break;
             }
         }
-
+*/
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -234,131 +168,6 @@ public class MediaButtonListenerService extends Service {
                 mBecomingNoisyReceiver,
                 filter);
 
-    }
-
-    MediaSessionCompat.Callback mediaSessionCallback = new MediaSessionCompat.Callback() {
-
-        @Override
-        public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
-
-            Log.d(TAG, "onMediaButtonEvent: " + mediaButtonEvent);
-            return super.onMediaButtonEvent(mediaButtonEvent);
-        }
-
-        @Override
-        public void onPlay() {
-
-            Log.d(TAG, "onPlay: ");
-
-            // Заполняем данные о треке
-            MediaMetadataCompat.Builder metadata = metadataBuilder;
-            metadata.putString(MediaMetadataCompat.METADATA_KEY_TITLE, "title");
-            metadata.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Artist");
-            metadata.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Album");
-            metadata.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 0);
-            mediaSession.setMetadata(metadata.build());
-
-            int audioFocusResult;
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-
-                AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                        // Собираемся воспроизводить звуковой контент
-                        // (а не звук уведомления или звонок будильника)
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        // ...и именно музыку (а не трек фильма или речь)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build();
-                audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                        .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                        // Если получить фокус не удалось, ничего не делаем
-                        // Если true - нам выдадут фокус как только это будет возможно
-                        // (например, закончится телефонный разговор)
-                        .setAcceptsDelayedFocusGain(false)
-                        // Вместо уменьшения громкости собираемся вставать на паузу
-                        .setWillPauseWhenDucked(true)
-                        .setAudioAttributes(audioAttributes)
-                        .build();
-
-                audioFocusResult = mAudioManager.requestAudioFocus(audioFocusRequest);
-            }
-            else {
-                audioFocusResult = mAudioManager.requestAudioFocus(
-                        audioFocusChangeListener,
-                        AudioManager.STREAM_MUSIC,
-                        AudioManager.AUDIOFOCUS_GAIN);
-            }
-
-            if (audioFocusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
-                return;
-
-            Log.d(TAG, "onPlay: audiofocus granted" );
-
-
-            // Указываем, что наше приложение теперь активный плеер и кнопки
-            // на окне блокировки должны управлять именно нами
-            mediaSession.setActive(true);
-
-            // Сообщаем новое состояние
-            mediaSession.setPlaybackState(
-                    stateBuilder.setState(PlaybackStateCompat.STATE_PLAYING,
-                            PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
-        }
-
-        @Override
-        public void onStop() {
-
-            Log.d(TAG, "onStop: ");
-            mAudioManager.abandonAudioFocus(audioFocusChangeListener);
-            // Все, больше мы не "главный" плеер, уходим со сцены
-            mediaSession.setActive(false);
-
-            // Сообщаем новое состояние
-            mediaSession.setPlaybackState(
-                    stateBuilder.setState(PlaybackStateCompat.STATE_STOPPED,
-                            PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
-        }
-    };
-
-    Notification getNotification(int playbackState) {
-        // MediaStyleHelper заполняет уведомление метаданными трека.
-        // Хелпер любезно написал Ian Lake / Android Framework Developer at Google
-        // и выложил здесь: https://gist.github.com/ianhanniballake/47617ec3488e0257325c
-        NotificationCompat.Builder builder = MediaStyleHelper.from(this, mediaSession, TAG);
-
-        // Добавляем кнопки
-
-        // ...play/pause
-        if (playbackState == PlaybackStateCompat.STATE_PLAYING)
-            builder.addAction(
-                    new NotificationCompat.Action(
-                            android.R.drawable.ic_media_pause, "pause",
-                            MediaButtonReceiver.buildMediaButtonPendingIntent(
-                                    this,
-                                    PlaybackStateCompat.ACTION_PLAY_PAUSE)));
-        else
-            builder.addAction(
-                    new NotificationCompat.Action(
-                            android.R.drawable.ic_media_play, "play",
-                            MediaButtonReceiver.buildMediaButtonPendingIntent(
-                                    this,
-                                    PlaybackStateCompat.ACTION_PLAY_PAUSE)));
-
-        builder.setSmallIcon(R.mipmap.ic_launcher);
-        builder.setColor(ContextCompat.getColor(this, R.color.colorPrimaryDark));
-
-        // Не отображать время создания уведомления. В нашем случае это не имеет смысла
-        builder.setShowWhen(false);
-
-        // Это важно. Без этой строчки уведомления не отображаются на Android Wear
-        // и криво отображаются на самом телефоне.
-        builder.setPriority(NotificationCompat.PRIORITY_HIGH);
-
-        // Не надо каждый раз вываливать уведомление на пользователя
-        builder.setOnlyAlertOnce(true);
-
-        return builder.build();
     }
 
     private Notification buildNotification() {
@@ -416,8 +225,8 @@ public class MediaButtonListenerService extends Service {
 
         Log.d(TAG, "onDestroy" + String.format(" Count binder component %d",  countBindingUser));
 
-        // Ресурсы освобождать обязательно
-        mediaSession.release();
+        _mediaSession.setActive(false);
+        _mediaSession.release();
         super.onDestroy();
     }
 
@@ -495,7 +304,7 @@ public class MediaButtonListenerService extends Service {
     @Nullable
     public MediaSessionCompat.Token getSessionToken() {
 
-        return (mediaSession == null? null: mediaSession.getSessionToken());
+        return null;//(mediaSession == null? null: mediaSession.getSessionToken());
     }
 
     private enum Command implements Serializable {

@@ -27,14 +27,14 @@ import static android.content.Context.BIND_AUTO_CREATE;
 
 /**
  * A simple {@link Fragment} subclass.
- * Use the {@link BlankConnectionFragment#newInstance} factory method to
+ * Use the {@link BlankConnectionFragmentService#newInstance} factory method to
  * create an instance of this fragment.
  */
-public class BlankConnectionFragment
+public class BlankConnectionFragmentService
         extends Fragment
         implements ServiceConnection {
 
-    public static final String TAG = BlankConnectionFragment.class.getName();
+    public static final String TAG = BlankConnectionFragmentService.class.getName();
 
     private static final String ARG_PARAM1 = TAG + "param1";
     private static final String ARG_PARAM2 = TAG + "param2";
@@ -43,21 +43,18 @@ public class BlankConnectionFragment
     private String mParam2;
 
     @Nullable
-    private PlayerService.PlayerServiceBinder playerServiceBinder;
+    private MediaButtonListenerServiceBinder playerServiceBinder;
     @Nullable
     private MediaControllerCompat mediaController;
 
     private MediaControllerCompat.Callback callback;
 
-    Button playButton = null;
-    Button pauseButton = null;
-    Button stopButton = null;
-    public BlankConnectionFragment() {
+    public BlankConnectionFragmentService() {
         // Required empty public constructor
     }
 
-    public static BlankConnectionFragment newInstance(String param1, String param2) {
-        BlankConnectionFragment fragment = new BlankConnectionFragment();
+    public static BlankConnectionFragmentService newInstance(String param1, String param2) {
+        BlankConnectionFragmentService fragment = new BlankConnectionFragmentService();
         Bundle args = new Bundle();
         args.putString(ARG_PARAM1, param1);
         args.putString(ARG_PARAM2, param2);
@@ -99,43 +96,7 @@ public class BlankConnectionFragment
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        playButton = new Button(getContext());
-        playButton.setText("play");
-        pauseButton = new Button(getContext());
-        pauseButton.setText("pause");
-        stopButton = new Button(getContext());
-        stopButton.setText("stop");
-
-        linearLayout.addView(playButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        linearLayout.addView(pauseButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        linearLayout.addView(stopButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        playButton.setOnClickListener(v -> {
-            if (mediaController != null)
-                mediaController.getTransportControls().play();
-        });
-
-        pauseButton.setOnClickListener(v -> {
-            if (mediaController != null)
-                mediaController.getTransportControls().pause();
-        });
-
-        stopButton.setOnClickListener(v -> {
-            if (mediaController != null)
-                mediaController.getTransportControls().stop();
-        });
-
-        getContext().bindService(new Intent(getContext(), PlayerService.class), this, BIND_AUTO_CREATE);
-
-        getContext().startService(new Intent(getContext(), PlayerService.class));
+        MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
 
         return linearLayout;
     }
@@ -144,41 +105,27 @@ public class BlankConnectionFragment
     public void onStart() {
         super.onStart();
 
-       /* if(getContext() != null && playerServiceBinder == null)
-            MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);*/
     }
 
     @Override
     public void onResume() {
         super.onResume();
 
-        if (mediaController != null)
-            mediaController.getTransportControls().play();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-/*
 
-        if(getContext() != null)
-            MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
-*/
-
-        playerServiceBinder = null;
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
 
-        if (mediaController != null) {
-            mediaController.unregisterCallback(callback);
-            mediaController = null;
-        }
+        if(playerServiceBinder != null) {
 
-        if(getContext() != null && playerServiceBinder != null) {
-            getContext().unbindService(this);
+            MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
             playerServiceBinder = null;
         }
     }
@@ -186,23 +133,11 @@ public class BlankConnectionFragment
     @Override
     public void onServiceConnected(ComponentName name, IBinder service) {
 
-        if(service instanceof PlayerService.PlayerServiceBinder){
+        if(service instanceof MediaButtonListenerServiceBinder){
 
-            playerServiceBinder = (PlayerService.PlayerServiceBinder) service;
+            playerServiceBinder = (MediaButtonListenerServiceBinder) service;
 
-            try {
-                MediaSessionCompat.Token sessionToken = playerServiceBinder.getMediaSessionToken();
-
-                if(sessionToken != null) {
-                    mediaController = new MediaControllerCompat(
-                            getContext(), sessionToken);
-                    mediaController.registerCallback(callback);
-                }
-
-
-            } catch (RemoteException e) {
-                mediaController = null;
-            }
+            Log.d(TAG, "onServiceConnected: ");
         }
     }
 
