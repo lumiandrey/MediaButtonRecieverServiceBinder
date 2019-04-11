@@ -426,7 +426,6 @@ public class MediaButtonListenerService extends Service {
 
         Log.d(TAG, "onDestroy" + String.format(" Count binder component %d",  countBindingUser));
 
-        _mediaSession.setActive(false);
         _mediaSession.release();
         super.onDestroy();
     }

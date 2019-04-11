@@ -106,7 +106,7 @@ public class PlayerService extends Service {
                     .build();
             audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                     .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                    .setAcceptsDelayedFocusGain(false)
+                        .setAcceptsDelayedFocusGain(false)
                     .setWillPauseWhenDucked(true)
                     .setAudioAttributes(audioAttributes)
                     .build();
