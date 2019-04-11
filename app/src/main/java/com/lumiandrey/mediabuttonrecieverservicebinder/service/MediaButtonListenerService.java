@@ -1,6 +1,5 @@
 package com.lumiandrey.mediabuttonrecieverservicebinder.service;
 
-import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -23,16 +22,17 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 
-import com.google.android.exoplayer2.source.ExtractorMediaSource;
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
 import com.lumiandrey.mediabuttonrecieverservicebinder.MediaButtonHelper;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
+import com.lumiandrey.mediabuttonrecieverservicebinder.style.MediaStyleHelper;
 
 import java.io.Serializable;
 import java.util.UUID;
@@ -77,10 +77,9 @@ public class MediaButtonListenerService extends Service {
     private AudioFocusRequest audioFocusRequest;
     private boolean audioFocusRequested = false;
 
-    private MediaSessionCompat.Callback mediaSessionCallback = new MediaSessionCompat.Callback() {
+    int currentState = PlaybackStateCompat.STATE_STOPPED;
 
-        private Uri currentUri;
-        int currentState = PlaybackStateCompat.STATE_STOPPED;
+    private MediaSessionCompat.Callback mediaSessionCallback = new MediaSessionCompat.Callback() {
 
         @Override
         public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
@@ -95,17 +94,7 @@ public class MediaButtonListenerService extends Service {
             Log.d(TAG, "onPlay: ");
             if (!isRunning) {
 
-                // Заполняем данные о треке
-                MediaMetadataCompat metadata = metadataBuilder
-                        .putBitmap(MediaMetadataCompat.METADATA_KEY_ART,
-                                BitmapFactory.decodeResource(getResources(), R.drawable.ic_dashboard_black_24dp))
-                        .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "Handling")
-                        .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Handling")
-                        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Handling")
-                        .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 200)
-                        .build();
-
-                _mediaSession.setMetadata(metadata);
+                updateMetadataFromTrack();
                 startService(new Intent(getApplicationContext(), MediaButtonListenerService.class));
 
                 if (!audioFocusRequested) {
@@ -121,6 +110,7 @@ public class MediaButtonListenerService extends Service {
                         return;
                 }
 
+                Log.d(TAG, "onPlay: granted audio focus");
                 _mediaSession.setActive(true); // Сразу после получения фокуса
 
                 if (mBecomingNoisyReceiver == null) {
@@ -143,6 +133,7 @@ public class MediaButtonListenerService extends Service {
             _mediaSession.setPlaybackState(stateBuilder.setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
             currentState = PlaybackStateCompat.STATE_PLAYING;
 
+            refreshNotificationAndForegroundStatus(currentState);
         }
 
         @Override
@@ -154,6 +145,7 @@ public class MediaButtonListenerService extends Service {
             _mediaSession.setPlaybackState(stateBuilder.setState(PlaybackStateCompat.STATE_PAUSED, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
             currentState = PlaybackStateCompat.STATE_PAUSED;
 
+            refreshNotificationAndForegroundStatus(currentState);
         }
 
         @Override
@@ -176,50 +168,57 @@ public class MediaButtonListenerService extends Service {
             _mediaSession.setPlaybackState(stateBuilder.setState(PlaybackStateCompat.STATE_STOPPED, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
             currentState = PlaybackStateCompat.STATE_STOPPED;
 
+            refreshNotificationAndForegroundStatus(currentState);
             stopSelf();
         }
 
-        private void updateMetadataFromTrack(MusicRepository.Track track) {
-            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, BitmapFactory.decodeResource(getResources(), track.getBitmapResId()));
-            metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.getTitle());
-            metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, track.getArtist());
-            metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.getArtist());
-            metadataBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, track.getDuration());
-            _mediaSession.setMetadata(metadataBuilder.build());
+        private void updateMetadataFromTrack() {
+            // Заполняем данные о треке
+            MediaMetadataCompat metadata = metadataBuilder
+                    .putBitmap(MediaMetadataCompat.METADATA_KEY_ART,
+                            BitmapFactory.decodeResource(getResources(), R.drawable.ic_dashboard_black_24dp))
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "Handling")
+                    .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Handling")
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Handling")
+                    .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 20)
+                    .build();
+
+            _mediaSession.setMetadata(metadata);
         }
     };
 
     private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener = focusChange -> {
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
-                // Фокус предоставлен.
-                // Например, был входящий звонок и фокус у нас отняли.
-                // Звонок закончился, фокус выдали опять
-                // и мы продолжили воспроизведение.
-                Log.d(TAG, "AUDIOFOCUS_GAIN:  Фокус предоставлен");
                 mediaSessionCallback.onPlay();
+                Log.d(TAG, "AUDIOFOCUS_GAIN: приложение дает понять, что оно собирается долго воспроизводить свой звук, и текущее воспроизведение должно приостановиться на это время");
                 break;
+            //воспроизведение будет коротким, и текущее воспроизведение должно приостановиться на это время
+            case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT:{
+                Log.d(TAG, "AUDIOFOCUS_GAIN_TRANSIENT воспроизведение будет коротким, и текущее воспроизведение должно приостановиться на это время: ");
+            } break;
+            //фокус потерян в результате того, что другое приложение запросило фокус
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                // Фокус отняли, потому что какому-то приложению надо
-                // коротко "крякнуть".
-                // Например, проиграть звук уведомления или навигатору сказать
-                // "Через 50 метров поворот направо".
-                // В этой ситуации нам разрешено не останавливать вопроизведение,
-                // но надо снизить громкость.
-                // Приложение не обязано именно снижать громкость,
-                // можно встать на паузу, что мы здесь и делаем.
+                Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: ");
                 mediaSessionCallback.onPause();
-                Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: кому-то коротко \"крякнуть\"" );
                 break;
 
-            default:
-                audioFocusRequested = false;
+            case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:{ // воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть
+                Log.d(TAG, " воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть: ");
+            } break;
+            //фокус потерян в результате того, что другое приложение запросило фокус AUDIOFOCUS_GAIN.
+            // Т.е. нам дают понять, что другое приложение собирается воспроизводить что-то долгое и просит нас пока приостановить наше воспроизведение.
+            case AudioManager.AUDIOFOCUS_LOSS:{
                 mediaSessionCallback.onPause();
-                Log.d(TAG, " // Фокус совсем отняли.: ");
+                Log.d(TAG, ": AUDIOFOCUS_LOSS");
+
+            } break;
+            default:
+                mediaSessionCallback.onPause();
+                Log.d(TAG, "AUDIOFOCUS_NONE: ");
                 break;
         }
     };
-
 
     @NonNull
     private MediaButtonListenerServiceBinder mButtonListenerServiceBinder = new MediaButtonListenerServiceBinder(this);
@@ -250,7 +249,6 @@ public class MediaButtonListenerService extends Service {
             Log.e(TAG, "initMediaSession: _mediaSession = null");
             return;
         }
-
 
         // FLAG_HANDLES_MEDIA_BUTTONS - хотим получать события от аппаратных кнопок
         // (например, гарнитуры)
@@ -289,8 +287,6 @@ public class MediaButtonListenerService extends Service {
 
         Log.d(TAG, "onBind" + String.format(" Count binder component %d",  countBindingUser));
 
-        startService(checkForeground(this));
-
         return mButtonListenerServiceBinder;
     }
 
@@ -306,8 +302,6 @@ public class MediaButtonListenerService extends Service {
 
         Log.d(TAG, "onBind" + String.format(" Count binder component %d",  countBindingUser));
 
-        startService(checkForeground(this));
-
         Log.d(TAG, "onRebind" + String.format(" Count binder component %d",  countBindingUser));
     }
 
@@ -315,6 +309,14 @@ public class MediaButtonListenerService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
 
         MediaButtonReceiver.handleIntent(_mediaSession, intent);
+
+        Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
+
+        Log.d(TAG, "onStartCommand: " + intent);
+
+        refreshNotificationAndForegroundStatus(currentState);
+
+        /*MediaButtonReceiver.handleIntent(_mediaSession, intent);
 
         Log.d(TAG, "onStartCommand " + String.format(" Count binder component %d",  countBindingUser));
         Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
@@ -363,7 +365,7 @@ public class MediaButtonListenerService extends Service {
                     stopSelf();
                 } break;
             }
-        }
+        }*/
 
         return super.onStartCommand(intent, flags, startId);
     }
@@ -440,7 +442,7 @@ public class MediaButtonListenerService extends Service {
             countBindingUser = 0;
         }
 
-        startService(checkForeground(this));
+        //startService(checkForeground(this));
 
         return true;
     }
@@ -503,7 +505,7 @@ public class MediaButtonListenerService extends Service {
     @Nullable
     public MediaSessionCompat.Token getSessionToken() {
 
-        return null;//(mediaSession == null? null: mediaSession.getSessionToken());
+        return (_mediaSession == null? null: _mediaSession.getSessionToken());
     }
 
     private enum Command implements Serializable {
@@ -512,5 +514,54 @@ public class MediaButtonListenerService extends Service {
         START,
         STOP,
         DEFAULT
+    }
+
+    private void refreshNotificationAndForegroundStatus(int playbackState) {
+        switch (playbackState) {
+            case PlaybackStateCompat.STATE_PLAYING: {
+
+                Log.d(TAG, "refreshNotificationAndForegroundStatus: STATE_PLAYING");
+                startForeground(ID_FOREGROUND_NOTIFICATION, getNotification(playbackState));
+                break;
+            }
+            case PlaybackStateCompat.STATE_PAUSED: {
+                Log.d(TAG, "refreshNotificationAndForegroundStatus: STATE_PAUSED ");
+                NotificationManagerCompat.from(MediaButtonListenerService.this)
+                        .notify(ID_FOREGROUND_NOTIFICATION, getNotification(playbackState));
+
+                stopForeground(false);
+                break;
+            }
+            default: {
+
+                Log.d(TAG, "refreshNotificationAndForegroundStatus: default");
+
+                stopForeground(true);
+                break;
+            }
+        }
+    }
+
+    private Notification getNotification(int playbackState) {
+        NotificationCompat.Builder builder = MediaStyleHelper.from(this, _mediaSession, TAG);
+
+        if (playbackState == PlaybackStateCompat.STATE_PLAYING)
+            builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_pause, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE)));
+        else
+            builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_play, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE)));
+
+        builder.setStyle(new android.support.v4.media.app.NotificationCompat.MediaStyle()
+                .setShowActionsInCompactView(0)
+                .setShowCancelButton(true)
+                .setCancelButtonIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_STOP))
+                .setMediaSession(_mediaSession.getSessionToken())); // setMediaSession требуется для Android Wear
+        builder.setSmallIcon(R.mipmap.ic_launcher);
+        builder.setColor(ContextCompat.getColor(this, R.color.colorPrimaryDark)); // The whole background (in MediaStyle), not just icon background
+        builder.setShowWhen(false);
+        builder.setPriority(NotificationCompat.PRIORITY_HIGH);
+        builder.setOnlyAlertOnce(true);
+        builder.setChannelId(TAG);
+
+        return builder.build();
     }
 }

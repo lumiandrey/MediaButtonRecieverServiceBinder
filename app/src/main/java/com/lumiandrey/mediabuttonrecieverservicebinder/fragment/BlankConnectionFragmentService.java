@@ -42,6 +42,9 @@ public class BlankConnectionFragmentService
     private String mParam1;
     private String mParam2;
 
+    private Button playButton = null;
+
+
     @Nullable
     private MediaButtonListenerServiceBinder playerServiceBinder;
     @Nullable
@@ -96,6 +99,22 @@ public class BlankConnectionFragmentService
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        playButton = new Button(getContext());
+        playButton.setText("play");
+
+        linearLayout.addView(playButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        playButton.setOnClickListener(v -> {
+            if (mediaController != null)
+                mediaController.getTransportControls().play();
+        });
+
+        getContext().bindService(new Intent(getContext(), PlayerService.class), this, BIND_AUTO_CREATE);
+
+        getContext().startService(new Intent(getContext(), PlayerService.class));
+
         return linearLayout;
     }
 
@@ -105,7 +124,6 @@ public class BlankConnectionFragmentService
 
         if(playerServiceBinder == null)
             MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
-
     }
 
     @Override
@@ -129,7 +147,15 @@ public class BlankConnectionFragmentService
     public void onDestroyView() {
         super.onDestroyView();
 
+        if (mediaController != null) {
+            mediaController.unregisterCallback(callback);
+            mediaController = null;
+        }
 
+        if(getContext() != null && playerServiceBinder != null) {
+            getContext().unbindService(this);
+            playerServiceBinder = null;
+        }
     }
 
     @Override
@@ -138,6 +164,20 @@ public class BlankConnectionFragmentService
         if(service instanceof MediaButtonListenerServiceBinder){
 
             playerServiceBinder = (MediaButtonListenerServiceBinder) service;
+
+            try {
+                MediaSessionCompat.Token sessionToken = playerServiceBinder.getMediaSessionToken();
+
+                if(sessionToken != null) {
+                    mediaController = new MediaControllerCompat(
+                            getContext(), sessionToken);
+                    mediaController.registerCallback(callback);
+                }
+
+
+            } catch (RemoteException e) {
+                mediaController = null;
+            }
 
             Log.d(TAG, "onServiceConnected: ");
         }

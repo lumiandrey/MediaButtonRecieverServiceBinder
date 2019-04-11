@@ -48,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
                         getSupportFragmentManager()
                                 .beginTransaction()
-                                .replace(R.id.frame_fragment_container, BlankConnectionFragment.newInstance("Navigation ", "Connection"))
+                                .replace(R.id.frame_fragment_container, BlankConnectionFragmentService.newInstance("Navigation ", "Connection"))
                                 .commit();
 
                         return true;
