@@ -52,6 +52,7 @@ import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvicto
 import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
+import com.lumiandrey.mediabuttonrecieverservicebinder.MediaButtonHelper;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
 import com.lumiandrey.mediabuttonrecieverservicebinder.style.MediaStyleHelper;
 
@@ -88,6 +89,7 @@ public class PlayerService extends Service {
     private DataSource.Factory dataSourceFactory;
 
     private final MusicRepository musicRepository = new MusicRepository();
+    int currentState = PlaybackStateCompat.STATE_STOPPED;
 
     @Override
     public void onCreate() {
@@ -139,7 +141,12 @@ public class PlayerService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         MediaButtonReceiver.handleIntent(mediaSession, intent);
 
+        Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
+
         Log.d(TAG, "onStartCommand: " + intent);
+
+        refreshNotificationAndForegroundStatus(currentState);
+
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -155,7 +162,6 @@ public class PlayerService extends Service {
     private MediaSessionCompat.Callback mediaSessionCallback = new MediaSessionCompat.Callback() {
 
         private Uri currentUri;
-        int currentState = PlaybackStateCompat.STATE_STOPPED;
 
         @Override
         public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
@@ -249,6 +255,8 @@ public class PlayerService extends Service {
 
         @Override
         public void onSkipToNext() {
+            Log.d(TAG, "onSkipToNext: ");
+
             MusicRepository.Track track = musicRepository.getNext();
             updateMetadataFromTrack(track);
 
@@ -259,6 +267,8 @@ public class PlayerService extends Service {
 
         @Override
         public void onSkipToPrevious() {
+
+            Log.d(TAG, "onSkipToPrevious: ");
             MusicRepository.Track track = musicRepository.getPrevious();
             updateMetadataFromTrack(track);
 
@@ -291,12 +301,28 @@ public class PlayerService extends Service {
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
                 mediaSessionCallback.onPlay(); 
-                Log.d(TAG, "AUDIOFOCUS_GAIN: ");
+                Log.d(TAG, "AUDIOFOCUS_GAIN: приложение дает понять, что оно собирается долго воспроизводить свой звук, и текущее воспроизведение должно приостановиться на это время");
                 break;
+                //воспроизведение будет коротким, и текущее воспроизведение должно приостановиться на это время
+                case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT:{
+                    Log.d(TAG, "AUDIOFOCUS_GAIN_TRANSIENT воспроизведение будет коротким, и текущее воспроизведение должно приостановиться на это время: ");
+                } break;
+            //фокус потерян в результате того, что другое приложение запросило фокус
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: ");
                 mediaSessionCallback.onPause();
                 break;
+
+            case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:{ // воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть
+                Log.d(TAG, " воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть: ");
+            } break;
+            //фокус потерян в результате того, что другое приложение запросило фокус AUDIOFOCUS_GAIN.
+            // Т.е. нам дают понять, что другое приложение собирается воспроизводить что-то долгое и просит нас пока приостановить наше воспроизведение.
+            case AudioManager.AUDIOFOCUS_LOSS:{
+                mediaSessionCallback.onPause();
+                Log.d(TAG, ": AUDIOFOCUS_LOSS");
+
+            } break;
             default:
                 mediaSessionCallback.onPause();
                 Log.d(TAG, "AUDIOFOCUS_NONE: ");
@@ -307,9 +333,13 @@ public class PlayerService extends Service {
     private final BroadcastReceiver becomingNoisyReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+
             // Disconnecting headphones - stop playback
             if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
                 mediaSessionCallback.onPause();
+                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY");
+            } else {
+                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY no");
             }
         }
     };
@@ -363,15 +393,20 @@ public class PlayerService extends Service {
     private void refreshNotificationAndForegroundStatus(int playbackState) {
         switch (playbackState) {
             case PlaybackStateCompat.STATE_PLAYING: {
+
+                Log.d(TAG, "refreshNotificationAndForegroundStatus: STATE_PLAYING");
                 startForeground(NOTIFICATION_ID, getNotification(playbackState));
                 break;
             }
             case PlaybackStateCompat.STATE_PAUSED: {
+                Log.d(TAG, "refreshNotificationAndForegroundStatus: STATE_PAUSED ");
                 NotificationManagerCompat.from(PlayerService.this).notify(NOTIFICATION_ID, getNotification(playbackState));
                 stopForeground(false);
                 break;
             }
             default: {
+
+                Log.d(TAG, "refreshNotificationAndForegroundStatus: default");
                 stopForeground(true);
                 break;
             }
@@ -380,16 +415,14 @@ public class PlayerService extends Service {
 
     private Notification getNotification(int playbackState) {
         NotificationCompat.Builder builder = MediaStyleHelper.from(this, mediaSession, TAG);
-        builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_previous, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)));
 
         if (playbackState == PlaybackStateCompat.STATE_PLAYING)
             builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_pause, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE)));
         else
             builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_play, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE)));
 
-        builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_next, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_NEXT)));
         builder.setStyle(new MediaStyle()
-                .setShowActionsInCompactView(1)
+       //         .setShowActionsInCompactView(1)
                 .setShowCancelButton(true)
                 .setCancelButtonIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_STOP))
                 .setMediaSession(mediaSession.getSessionToken())); // setMediaSession требуется для Android Wear

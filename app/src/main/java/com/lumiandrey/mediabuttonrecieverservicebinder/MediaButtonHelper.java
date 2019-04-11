@@ -7,7 +7,7 @@ import android.view.KeyEvent;
 public class MediaButtonHelper {
 
     public static String getKeyName(Intent intent){
-        if (Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+        if (intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
 
             KeyEvent event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
 
