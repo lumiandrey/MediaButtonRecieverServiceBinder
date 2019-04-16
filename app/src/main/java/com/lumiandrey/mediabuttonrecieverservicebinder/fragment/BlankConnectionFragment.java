@@ -81,6 +81,7 @@ public class BlankConnectionFragment
                 boolean playing = state.getState() == PlaybackStateCompat.STATE_PLAYING;
                 Log.d(TAG, "onPlaybackStateChanged: playing " + playing);
             }
+
         };
     }
 
@@ -133,19 +134,17 @@ public class BlankConnectionFragment
                 mediaController.getTransportControls().stop();
         });
 
-        getContext().bindService(new Intent(getContext(), PlayerService.class), this, BIND_AUTO_CREATE);
+        if(playerServiceBinder == null) {
+            getContext().bindService(new Intent(getContext(), PlayerService.class), this, BIND_AUTO_CREATE);
 
-        getContext().startService(new Intent(getContext(), PlayerService.class));
-
+            getContext().startService(new Intent(getContext(), PlayerService.class));
+        }
         return linearLayout;
     }
 
     @Override
     public void onStart() {
         super.onStart();
-
-       /* if(getContext() != null && playerServiceBinder == null)
-            MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);*/
     }
 
     @Override
@@ -159,13 +158,6 @@ public class BlankConnectionFragment
     @Override
     public void onStop() {
         super.onStop();
-/*
-
-        if(getContext() != null)
-            MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
-*/
-
-        playerServiceBinder = null;
     }
 
     @Override
@@ -198,8 +190,6 @@ public class BlankConnectionFragment
                             getContext(), sessionToken);
                     mediaController.registerCallback(callback);
                 }
-
-
             } catch (RemoteException e) {
                 mediaController = null;
             }

@@ -1,5 +1,6 @@
 package com.lumiandrey.mediabuttonrecieverservicebinder.service;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -119,8 +120,13 @@ public class MediaButtonListenerService extends Service {
                         @Override
                         public void onReceive(Context context, Intent intent) {
 
-                            Log.d(TAG, "onReceive: " + intent);
-                            mediaSessionCallback.onPause();
+                            // Disconnecting headphones - stop playback
+                            if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
+                                mediaSessionCallback.onPause();
+                                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY");
+                            } else {
+                                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY no");
+                            }
                         }
                     };
 
@@ -150,6 +156,11 @@ public class MediaButtonListenerService extends Service {
 
         @Override
         public void onStop() {
+
+            if(mBecomingNoisyReceiver != null){
+                unregisterReceiver(mBecomingNoisyReceiver);
+                mBecomingNoisyReceiver = null;
+            }
 
             if (audioFocusRequested) {
                 audioFocusRequested = false;
@@ -230,6 +241,10 @@ public class MediaButtonListenerService extends Service {
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+            @SuppressLint("WrongConstant") NotificationChannel notificationChannel = new NotificationChannel(TAG, getString(R.string.app_name), NotificationManagerCompat.IMPORTANCE_DEFAULT);
+            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            notificationManager.createNotificationChannel(notificationChannel);
 
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)

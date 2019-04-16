@@ -107,13 +107,15 @@ public class BlankConnectionFragmentService
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         playButton.setOnClickListener(v -> {
+
+            Log.d(TAG, "onCreateView: play click");
             if (mediaController != null)
                 mediaController.getTransportControls().play();
         });
 
-        getContext().bindService(new Intent(getContext(), PlayerService.class), this, BIND_AUTO_CREATE);
+        getContext().bindService(new Intent(getContext(), MediaButtonListenerService.class), this, BIND_AUTO_CREATE);
 
-        getContext().startService(new Intent(getContext(), PlayerService.class));
+        getContext().startService(new Intent(getContext(), MediaButtonListenerService.class));
 
         return linearLayout;
     }
@@ -122,8 +124,6 @@ public class BlankConnectionFragmentService
     public void onStart() {
         super.onStart();
 
-        if(playerServiceBinder == null)
-            MediaButtonListenerService.bindingMediaButtonListenerService(getContext(), this);
     }
 
     @Override
@@ -136,11 +136,6 @@ public class BlankConnectionFragmentService
     public void onStop() {
         super.onStop();
 
-        if(playerServiceBinder != null) {
-
-            MediaButtonListenerService.unbindingMediaButtonListenerService(getContext(), this);
-            playerServiceBinder = null;
-        }
     }
 
     @Override

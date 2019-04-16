@@ -28,6 +28,7 @@ import android.support.v4.media.session.PlaybackStateCompat;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.media.app.NotificationCompat.MediaStyle;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
@@ -91,6 +92,8 @@ public class PlayerService extends Service {
     private final MusicRepository musicRepository = new MusicRepository();
     int currentState = PlaybackStateCompat.STATE_STOPPED;
 
+    private boolean isForeground = false;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -145,6 +148,18 @@ public class PlayerService extends Service {
 
         Log.d(TAG, "onStartCommand: " + intent);
 
+        if (currentState !=  PlaybackStateCompat.STATE_PLAYING && intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+
+            KeyEvent event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+
+            if(event.getAction() == KeyEvent.ACTION_DOWN){
+
+                mediaSessionCallback.onPlay();
+
+                Log.d(TAG, "onStartCommand: action play");
+            }
+        }
+
         refreshNotificationAndForegroundStatus(currentState);
 
         return super.onStartCommand(intent, flags, startId);
@@ -166,8 +181,21 @@ public class PlayerService extends Service {
         @Override
         public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
 
-            Log.d(TAG, "onMediaButtonEvent: true main service" + mediaButtonEvent);
-            return super.onMediaButtonEvent(mediaButtonEvent);
+            if (currentState !=  PlaybackStateCompat.STATE_PLAYING && mediaButtonEvent != null && Intent.ACTION_MEDIA_BUTTON.equals(mediaButtonEvent.getAction())) {
+
+                KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+
+                if(event.getAction() == KeyEvent.ACTION_DOWN){
+
+                    mediaSessionCallback.onPlay();
+
+                    Log.d(TAG, "onMediaButtonEvent: action play");
+                    return true;
+                }
+            }
+
+            Log.d(TAG, "onMediaButtonEvent: true main service" + MediaButtonHelper.getKeyName(mediaButtonEvent));
+            return false;
         }
 
         @Override
@@ -175,7 +203,6 @@ public class PlayerService extends Service {
 
             Log.d(TAG, "onPlay: ");
             if (!exoPlayer.getPlayWhenReady()) {
-                startService(new Intent(getApplicationContext(), PlayerService.class));
 
                 MusicRepository.Track track = musicRepository.getCurrent();
                 updateMetadataFromTrack(track);
@@ -206,13 +233,14 @@ public class PlayerService extends Service {
             currentState = PlaybackStateCompat.STATE_PLAYING;
 
             refreshNotificationAndForegroundStatus(currentState);
+
+            startService(new Intent(getApplicationContext(), PlayerService.class));
         }
 
         @Override
         public void onPause() {
 
-            Log.d(TAG, "onPause: "
-            );
+            Log.d(TAG, "onPause: ");
             if (exoPlayer.getPlayWhenReady()) {
                 exoPlayer.setPlayWhenReady(false);
                 unregisterReceiver(becomingNoisyReceiver);
@@ -222,6 +250,8 @@ public class PlayerService extends Service {
             currentState = PlaybackStateCompat.STATE_PAUSED;
 
             refreshNotificationAndForegroundStatus(currentState);
+
+
         }
 
         @Override
@@ -251,6 +281,8 @@ public class PlayerService extends Service {
             refreshNotificationAndForegroundStatus(currentState);
 
             stopSelf();
+
+            startService(new Intent(getApplicationContext(), PlayerService.class));
         }
 
         @Override
@@ -263,6 +295,8 @@ public class PlayerService extends Service {
             refreshNotificationAndForegroundStatus(currentState);
 
             prepareToPlay(track.getUri());
+
+            startService(new Intent(getApplicationContext(), PlayerService.class));
         }
 
         @Override
@@ -275,7 +309,11 @@ public class PlayerService extends Service {
             refreshNotificationAndForegroundStatus(currentState);
 
             prepareToPlay(track.getUri());
+
+            startService(new Intent(getApplicationContext(), PlayerService.class));
         }
+
+
 
         private void prepareToPlay(Uri uri) {
 
@@ -314,7 +352,7 @@ public class PlayerService extends Service {
                 break;
 
             case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:{ // воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть
-                Log.d(TAG, " воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть: ");
+                Log.d(TAG, "AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK воспроизведение будет коротким, но текущее воспроизведение может просто на это время убавить звук и продолжать играть: ");
             } break;
             //фокус потерян в результате того, что другое приложение запросило фокус AUDIOFOCUS_GAIN.
             // Т.е. нам дают понять, что другое приложение собирается воспроизводить что-то долгое и просит нас пока приостановить наше воспроизведение.
@@ -394,18 +432,20 @@ public class PlayerService extends Service {
         switch (playbackState) {
             case PlaybackStateCompat.STATE_PLAYING: {
 
+                isForeground = true;
                 Log.d(TAG, "refreshNotificationAndForegroundStatus: STATE_PLAYING");
                 startForeground(NOTIFICATION_ID, getNotification(playbackState));
                 break;
             }
             case PlaybackStateCompat.STATE_PAUSED: {
+                isForeground = false;
                 Log.d(TAG, "refreshNotificationAndForegroundStatus: STATE_PAUSED ");
                 NotificationManagerCompat.from(PlayerService.this).notify(NOTIFICATION_ID, getNotification(playbackState));
                 stopForeground(false);
                 break;
             }
             default: {
-
+                isForeground = false;
                 Log.d(TAG, "refreshNotificationAndForegroundStatus: default");
                 stopForeground(true);
                 break;
