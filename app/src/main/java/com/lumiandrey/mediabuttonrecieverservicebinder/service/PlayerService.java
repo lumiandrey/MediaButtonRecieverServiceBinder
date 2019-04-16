@@ -99,7 +99,8 @@ public class PlayerService extends Service {
         super.onCreate();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            @SuppressLint("WrongConstant") NotificationChannel notificationChannel = new NotificationChannel(NOTIFICATION_DEFAULT_CHANNEL_ID, getString(R.string.app_name), NotificationManagerCompat.IMPORTANCE_DEFAULT);
+            @SuppressLint("WrongConstant") NotificationChannel notificationChannel
+                    = new NotificationChannel(NOTIFICATION_DEFAULT_CHANNEL_ID, getString(R.string.app_name), NotificationManagerCompat.IMPORTANCE_DEFAULT);
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             notificationManager.createNotificationChannel(notificationChannel);
 
@@ -146,7 +147,7 @@ public class PlayerService extends Service {
 
         Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
 
-        Log.d(TAG, "onStartCommand: " + intent);
+        Log.d(TAG, "onStartCommand: isForeground " + isForeground);
 
         if (currentState !=  PlaybackStateCompat.STATE_PLAYING && intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
 
@@ -181,6 +182,8 @@ public class PlayerService extends Service {
         @Override
         public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
 
+            Log.d(TAG, "onMediaButtonEvent: isForeground " + isForeground);
+
             if (currentState !=  PlaybackStateCompat.STATE_PLAYING && mediaButtonEvent != null && Intent.ACTION_MEDIA_BUTTON.equals(mediaButtonEvent.getAction())) {
 
                 KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
@@ -201,7 +204,7 @@ public class PlayerService extends Service {
         @Override
         public void onPlay() {
 
-            Log.d(TAG, "onPlay: ");
+            Log.d(TAG, "onPlay: isForeground " + isForeground);
             if (!exoPlayer.getPlayWhenReady()) {
 
                 MusicRepository.Track track = musicRepository.getCurrent();
@@ -240,7 +243,7 @@ public class PlayerService extends Service {
         @Override
         public void onPause() {
 
-            Log.d(TAG, "onPause: ");
+            Log.d(TAG, "onPause: isForeground " + isForeground);
             if (exoPlayer.getPlayWhenReady()) {
                 exoPlayer.setPlayWhenReady(false);
                 unregisterReceiver(becomingNoisyReceiver);
@@ -257,7 +260,7 @@ public class PlayerService extends Service {
         @Override
         public void onStop() {
 
-            Log.d(TAG, "onStop: ");
+            Log.d(TAG, "onStop: isForeground " + isForeground);
             if (exoPlayer.getPlayWhenReady()) {
                 exoPlayer.setPlayWhenReady(false);
                 unregisterReceiver(becomingNoisyReceiver);
@@ -287,7 +290,7 @@ public class PlayerService extends Service {
 
         @Override
         public void onSkipToNext() {
-            Log.d(TAG, "onSkipToNext: ");
+            Log.d(TAG, "onSkipToNext: isForeground " + isForeground);
 
             MusicRepository.Track track = musicRepository.getNext();
             updateMetadataFromTrack(track);
@@ -302,7 +305,7 @@ public class PlayerService extends Service {
         @Override
         public void onSkipToPrevious() {
 
-            Log.d(TAG, "onSkipToPrevious: ");
+            Log.d(TAG, "onSkipToPrevious: isForeground " + isForeground);
             MusicRepository.Track track = musicRepository.getPrevious();
             updateMetadataFromTrack(track);
 
@@ -313,11 +316,9 @@ public class PlayerService extends Service {
             startService(new Intent(getApplicationContext(), PlayerService.class));
         }
 
-
-
         private void prepareToPlay(Uri uri) {
 
-            Log.d(TAG, "prepareToPlay: ");
+            Log.d(TAG, "prepareToPlay: isForeground " + isForeground);
             if (!uri.equals(currentUri)) {
                 currentUri = uri;
                 ExtractorMediaSource mediaSource = new ExtractorMediaSource(uri, dataSourceFactory, extractorsFactory, null, null);
@@ -375,9 +376,9 @@ public class PlayerService extends Service {
             // Disconnecting headphones - stop playback
             if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
                 mediaSessionCallback.onPause();
-                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY");
+                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY isForeground " + isForeground);
             } else {
-                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY no");
+                Log.d(TAG, "onReceive: ACTION_AUDIO_BECOMING_NOISY no isForeground " + isForeground);
             }
         }
     };
@@ -456,13 +457,34 @@ public class PlayerService extends Service {
     private Notification getNotification(int playbackState) {
         NotificationCompat.Builder builder = MediaStyleHelper.from(this, mediaSession, TAG);
 
+        builder.addAction(
+                new NotificationCompat.Action(
+                        android.R.drawable.ic_media_previous,
+                        getString(R.string.app_name),
+                        MediaButtonReceiver.buildMediaButtonPendingIntent(
+                                this,
+                                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                        )
+                )
+        );
         if (playbackState == PlaybackStateCompat.STATE_PLAYING)
             builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_pause, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE)));
         else
             builder.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_play, getString(R.string.app_name), MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE)));
 
+        builder.addAction(
+                new NotificationCompat.Action(
+                        android.R.drawable.ic_media_next,
+                        getString(R.string.app_name),
+                        MediaButtonReceiver.buildMediaButtonPendingIntent(
+                                this,
+                                PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                        )
+                )
+        );
+
         builder.setStyle(new MediaStyle()
-       //         .setShowActionsInCompactView(1)
+                .setShowActionsInCompactView(1)
                 .setShowCancelButton(true)
                 .setCancelButtonIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_STOP))
                 .setMediaSession(mediaSession.getSessionToken())); // setMediaSession требуется для Android Wear
