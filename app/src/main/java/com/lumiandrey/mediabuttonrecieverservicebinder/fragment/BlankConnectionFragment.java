@@ -19,8 +19,6 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.lumiandrey.mediabuttonrecieverservicebinder.service.MediaButtonListenerService;
-import com.lumiandrey.mediabuttonrecieverservicebinder.service.MediaButtonListenerServiceBinder;
 import com.lumiandrey.mediabuttonrecieverservicebinder.service.PlayerService;
 
 import static android.content.Context.BIND_AUTO_CREATE;

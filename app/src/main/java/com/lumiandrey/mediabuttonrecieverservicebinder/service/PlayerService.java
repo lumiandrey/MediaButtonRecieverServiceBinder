@@ -65,7 +65,7 @@ public class PlayerService extends Service {
 
     public static final String TAG = PlayerService.class.getName();
 
-    private final int NOTIFICATION_ID = 404;
+    private final int NOTIFICATION_ID = (TAG.hashCode() > 0 ? -1*TAG.hashCode() : TAG.hashCode())   ;
     private final String NOTIFICATION_DEFAULT_CHANNEL_ID = "default_channel";
 
     private final MediaMetadataCompat.Builder metadataBuilder = new MediaMetadataCompat.Builder();
@@ -253,8 +253,6 @@ public class PlayerService extends Service {
             currentState = PlaybackStateCompat.STATE_PAUSED;
 
             refreshNotificationAndForegroundStatus(currentState);
-
-
         }
 
         @Override

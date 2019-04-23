@@ -30,13 +30,49 @@ import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 
+import com.google.android.exoplayer2.DefaultLoadControl;
+import com.google.android.exoplayer2.DefaultRenderersFactory;
+import com.google.android.exoplayer2.ExoPlaybackException;
+import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.ext.okhttp.OkHttpDataSourceFactory;
+import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
+import com.google.android.exoplayer2.extractor.ExtractorsFactory;
+import com.google.android.exoplayer2.extractor.ogg.OggExtractor;
+import com.google.android.exoplayer2.source.ExtractorMediaSource;
+import com.google.android.exoplayer2.source.LoopingMediaSource;
+import com.google.android.exoplayer2.source.MediaSource;
+import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DataSpec;
+import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.upstream.FileDataSourceFactory;
+import com.google.android.exoplayer2.upstream.RawResourceDataSource;
+import com.google.android.exoplayer2.upstream.cache.Cache;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSourceFactory;
+import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
+import com.google.android.exoplayer2.upstream.cache.SimpleCache;
+import com.google.android.exoplayer2.util.Util;
 import com.lumiandrey.mediabuttonrecieverservicebinder.MainActivity;
 import com.lumiandrey.mediabuttonrecieverservicebinder.MediaButtonHelper;
 import com.lumiandrey.mediabuttonrecieverservicebinder.R;
 import com.lumiandrey.mediabuttonrecieverservicebinder.style.MediaStyleHelper;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.UUID;
+
+import okhttp3.OkHttpClient;
 
 public class MediaButtonListenerService extends Service {
 
@@ -58,6 +94,11 @@ public class MediaButtonListenerService extends Service {
 
     // ...метаданных трека
     final MediaMetadataCompat.Builder metadataBuilder = new MediaMetadataCompat.Builder();
+
+    private SimpleExoPlayer mExoPlayer;
+    private DataSource.Factory dataSourceFactory;
+    private ExtractorsFactory extractorsFactory;
+
 
     // ...состояния плеера
     // Здесь мы указываем действия, которые собираемся обрабатывать в коллбэках.
@@ -82,6 +123,7 @@ public class MediaButtonListenerService extends Service {
 
     private MediaSessionCompat.Callback mediaSessionCallback = new MediaSessionCompat.Callback() {
 
+        private Uri currentUri;
         @Override
         public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
 
@@ -93,9 +135,14 @@ public class MediaButtonListenerService extends Service {
         public void onPlay() {
 
             Log.d(TAG, "onPlay: ");
-            if (!isRunning) {
+            if (!mExoPlayer.getPlayWhenReady() || !isRunning) {
+                prepareToPlay(
+                       RawResourceDataSource.buildRawResourceUri(R.raw.sound)/*
+                        Uri.parse("assets:///sound.mp3")*/
+                );
 
                 updateMetadataFromTrack();
+
                 startService(new Intent(getApplicationContext(), MediaButtonListenerService.class));
 
                 if (!audioFocusRequested) {
@@ -114,6 +161,7 @@ public class MediaButtonListenerService extends Service {
                 Log.d(TAG, "onPlay: granted audio focus");
                 _mediaSession.setActive(true); // Сразу после получения фокуса
 
+                mExoPlayer.setPlayWhenReady(true);
                 if (mBecomingNoisyReceiver == null) {
 
                     mBecomingNoisyReceiver = new BroadcastReceiver() {
@@ -147,6 +195,15 @@ public class MediaButtonListenerService extends Service {
 
             Log.d(TAG, "onPause: ");
 
+            if (mExoPlayer.getPlayWhenReady()) {
+                mExoPlayer.setPlayWhenReady(false);
+
+                if(mBecomingNoisyReceiver != null){
+                    unregisterReceiver(mBecomingNoisyReceiver);
+                    mBecomingNoisyReceiver = null;
+                }
+            }
+
             isRunning = false;
             _mediaSession.setPlaybackState(stateBuilder.setState(PlaybackStateCompat.STATE_PAUSED, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1).build());
             currentState = PlaybackStateCompat.STATE_PAUSED;
@@ -157,9 +214,13 @@ public class MediaButtonListenerService extends Service {
         @Override
         public void onStop() {
 
-            if(mBecomingNoisyReceiver != null){
-                unregisterReceiver(mBecomingNoisyReceiver);
-                mBecomingNoisyReceiver = null;
+            if (mExoPlayer.getPlayWhenReady()) {
+                mExoPlayer.setPlayWhenReady(false);
+
+                if(mBecomingNoisyReceiver != null){
+                    unregisterReceiver(mBecomingNoisyReceiver);
+                    mBecomingNoisyReceiver = null;
+                }
             }
 
             if (audioFocusRequested) {
@@ -195,6 +256,36 @@ public class MediaButtonListenerService extends Service {
                     .build();
 
             _mediaSession.setMetadata(metadata);
+        }
+
+        private void prepareToPlay(Uri uri) {
+
+            if (!uri.equals(currentUri)) {
+                currentUri = uri;
+
+                DataSpec dataSpec = new DataSpec(uri);
+                final RawResourceDataSource rawResourceDataSource = new RawResourceDataSource(MediaButtonListenerService.this);
+                try {
+                    rawResourceDataSource.open(dataSpec);
+                } catch (RawResourceDataSource.RawResourceDataSourceException e) {
+                    e.printStackTrace();
+                }
+
+                DataSource.Factory factory = new DataSource.Factory() {
+                    @Override
+                    public DataSource createDataSource() {
+                        return rawResourceDataSource;
+                    }
+                };
+
+                MediaSource audioSource = new ExtractorMediaSource(rawResourceDataSource.getUri(),
+                        factory, new DefaultExtractorsFactory(), null, null);
+
+                mExoPlayer.prepare(audioSource);
+
+                /*ExtractorMediaSource mediaSource = new ExtractorMediaSource(uri, dataSourceFactory, extractorsFactory, null, null);
+                mExoPlayer.prepare(mediaSource);*/
+            }
         }
     };
 
@@ -287,6 +378,15 @@ public class MediaButtonListenerService extends Service {
         Intent mediaButtonIntent = new Intent(Intent.ACTION_MEDIA_BUTTON, null, appContext, MediaButtonReceiver.class);
         _mediaSession.setMediaButtonReceiver(PendingIntent.getBroadcast(appContext, 0, mediaButtonIntent, 0));
 
+        mExoPlayer = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this), new DefaultTrackSelector(), new DefaultLoadControl());
+        mExoPlayer.addListener(exoPlayerListener);
+        DataSource.Factory httpDataSourceFactory = new OkHttpDataSourceFactory(new OkHttpClient(), Util.getUserAgent(this, getString(R.string.app_name)), null);
+        Cache cache = new SimpleCache(new File(this.getCacheDir().getAbsolutePath() + "/exoplayer"), new LeastRecentlyUsedCacheEvictor(1024 * 1024 * 100)); // 100 Mb max
+        //this.dataSourceFactory = new CacheDataSourceFactory(cache, httpDataSourceFactory, CacheDataSource.FLAG_BLOCK_ON_CACHE | CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+
+        this.dataSourceFactory = new FileDataSourceFactory();
+        this.extractorsFactory = new DefaultExtractorsFactory();
+
         Log.d(TAG, "onCreate" + String.format(" Count binder component %d",  countBindingUser));
     }
 
@@ -331,109 +431,7 @@ public class MediaButtonListenerService extends Service {
 
         refreshNotificationAndForegroundStatus(currentState);
 
-        /*MediaButtonReceiver.handleIntent(_mediaSession, intent);
-
-        Log.d(TAG, "onStartCommand " + String.format(" Count binder component %d",  countBindingUser));
-        Log.d(TAG, "onStartCommand: " + MediaButtonHelper.getKeyName(intent));
-
-        startForeground(ID_FOREGROUND_NOTIFICATION, buildNotification());
-        stopForeground(true);
-
-      if(intent.getExtras() != null) {
-            Command command = (Command) intent.getExtras().getSerializable(NAME_COMMAND);
-
-            switch (command != null ? command : Command.DEFAULT){
-                case CHECK_FOREGROUND:{
-
-                    if(isForegroundWork()){
-                        startForeground(ID_FOREGROUND_NOTIFICATION, buildNotification());
-                    } else {
-                        stopForeground(true);
-                    }
-
-                    mediaSessionCallback.onPlay();
-                } break;
-                case START:{
-
-                } break;
-                case STOP: {
-
-
-                    Log.d(TAG, "onStartCommand: stop listener");
-
-                    if(mBecomingNoisyReceiver != null) {
-                        unregisterReceiver(mBecomingNoisyReceiver);
-                        mBecomingNoisyReceiver = null;
-                    }
-
-                    if (audioFocusRequested) {
-                        audioFocusRequested = false;
-
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-                        } else {
-                            audioManager.abandonAudioFocus(audioFocusChangeListener);
-                        }
-                    }
-
-                    stopForeground(true);
-                    stopSelf();
-                } break;
-            }
-        }*/
-
         return super.onStartCommand(intent, flags, startId);
-    }
-
-
-    private Notification buildNotification() {
-
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            NotificationChannel channel = new NotificationChannel(TAG, TAG,
-                    NotificationManager.IMPORTANCE_DEFAULT);
-
-            channel.setDescription(TAG);
-
-            channel.enableLights(false);
-            channel.enableVibration(false);
-
-
-            manager.createNotificationChannel(channel);
-        }
-
-        PendingIntent deletePendingIntent;
-
-        int requestCode = UUID.randomUUID().hashCode();
-        deletePendingIntent = PendingIntent.getService(this,
-                (requestCode > 0 ? -1*requestCode : requestCode),
-                MediaButtonListenerService.createStop(this),
-                0);
-
-        PendingIntent contentIntent = PendingIntent.getActivity(
-                this,
-                0,
-                new Intent(this, MainActivity.class),
-                PendingIntent.FLAG_UPDATE_CURRENT);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, TAG);
-
-        builder.setContentTitle(getString(R.string.app_name));
-
-        builder.setContentText("MediaButtonListen");
-
-        builder.setSmallIcon(R.drawable.ic_launcher_foreground);
-
-        builder.setWhen(System.currentTimeMillis());
-
-        builder = builder.addAction(android.R.drawable.ic_delete,
-                "stop service", deletePendingIntent);
-
-        builder.setContentIntent(contentIntent);
-
-        return builder.build();
     }
 
     @Override
@@ -468,66 +466,10 @@ public class MediaButtonListenerService extends Service {
         Log.d(TAG, "onConfigurationChanged");
     }
 
-    private boolean isForegroundWork(){
-
-        return countBindingUser <= 0;
-    }
-
-    public static void bindingMediaButtonListenerService (
-            @NonNull final Context context,
-            @NonNull final ServiceConnection serviceConnection){
-
-        context.bindService(
-                new Intent(context, MediaButtonListenerService.class),
-                serviceConnection,
-                Context.BIND_AUTO_CREATE
-        );
-    }
-
-    public static void unbindingMediaButtonListenerService(
-            @NonNull final Context context,
-            @NonNull final ServiceConnection serviceConnection
-    ) {
-
-        context.unbindService(serviceConnection);
-    }
-
-    public static Intent createStop(@NonNull final Context context){
-
-        return createCommand(context, Command.STOP);
-    }
-
-    public static Intent createStart(@NonNull final Context context){
-
-        return createCommand(context, Command.START);
-    }
-
-    private static Intent checkForeground(@NonNull final Context context){
-
-        return createCommand(context, Command.CHECK_FOREGROUND);
-    }
-
-    public static Intent createCommand(@NonNull final Context context, @NonNull Command command){
-
-        Intent intent = new Intent(context, MediaButtonListenerService.class);
-
-        intent.putExtra(NAME_COMMAND, command);
-
-        return intent;
-    }
-
     @Nullable
     public MediaSessionCompat.Token getSessionToken() {
 
         return (_mediaSession == null? null: _mediaSession.getSessionToken());
-    }
-
-    private enum Command implements Serializable {
-
-        CHECK_FOREGROUND,
-        START,
-        STOP,
-        DEFAULT
     }
 
     private void refreshNotificationAndForegroundStatus(int playbackState) {
@@ -578,4 +520,38 @@ public class MediaButtonListenerService extends Service {
 
         return builder.build();
     }
+
+    private ExoPlayer.EventListener exoPlayerListener = new ExoPlayer.EventListener() {
+        @Override
+        public void onTimelineChanged(Timeline timeline, Object manifest) {
+        }
+
+        @Override
+        public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
+        }
+
+        @Override
+        public void onLoadingChanged(boolean isLoading) {
+        }
+
+        @Override
+        public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+            if (playWhenReady && playbackState == ExoPlayer.STATE_ENDED) {
+                mediaSessionCallback.onSkipToNext();
+            }
+        }
+
+        @Override
+        public void onPlayerError(ExoPlaybackException error) {
+        }
+
+        @Override
+        public void onPositionDiscontinuity() {
+        }
+
+        @Override
+        public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
+        }
+    };
+
 }
